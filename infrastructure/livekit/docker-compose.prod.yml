@@ -1,0 +1,36 @@
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: oscar-livekit-server
+    ports:
+      - "7881:7881"
+      - "7882:7882/udp"
+    volumes:
+      - ./livekit.prod.yaml:/etc/livekit.yaml
+    command: --config /etc/livekit.yaml --node-ip=51.178.52.131
+    env_file:
+      - ../../env/.env.prod
+    restart: unless-stopped
+    networks:
+      - proxy-network
+
+  media-simulator:
+    build:
+      context: ../../services/media-simulator
+      dockerfile: Dockerfile
+    container_name: oscar-media-simulator
+    volumes:
+      - ../../services/media-simulator/assets:/app/assets
+    environment:
+      - LIVEKIT_URL=ws://oscar-livekit-server:7880
+    env_file:
+      - ../../env/.env.prod
+    depends_on:
+      - livekit
+    restart: unless-stopped
+    networks:
+      - proxy-network
+
+networks:
+  proxy-network:
+    external: true
