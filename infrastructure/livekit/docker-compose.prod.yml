@@ -23,8 +23,8 @@ services:
       - ../../services/media-simulator/assets:/app/assets
     environment:
       - LIVEKIT_URL=ws://oscar-livekit-server:7880
-    env_file:
-      - ../../env/.env.prod
+      - LIVEKIT_API_KEY=oscar_prod_key
+      - LIVEKIT_API_SECRET=oscar_super_secret_prod_key
     depends_on:
       - livekit
     restart: unless-stopped
