@@ -8,8 +8,6 @@ services:
     volumes:
       - ./livekit.prod.yaml:/etc/livekit.yaml
     command: --config /etc/livekit.yaml --node-ip=51.178.52.131
-    env_file:
-      - ../../env/.env.prod
     restart: unless-stopped
     networks:
       - proxy-network
