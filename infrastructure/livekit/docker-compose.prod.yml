@@ -21,8 +21,10 @@ services:
       - ../../services/media-simulator/assets:/app/assets
     environment:
       - LIVEKIT_URL=ws://oscar-livekit-server:7880
-      - LIVEKIT_API_KEY=oscar_prod_key
-      - LIVEKIT_API_SECRET=oscar_super_secret_prod_key
+      - LIVEKIT_KEYS=oscar_prod_key:oscar_super_secret_prod_key
+      - DEFAULT_ROOM_NAME=oscar-lot1-room
+      - MEDIA_SOURCE_TYPE=video_file
+      - MEDIA_VIDEO_PATH=/app/assets/video_cam_virtuel/Supermarket_sample_1.mp4
     depends_on:
       - livekit
     restart: unless-stopped
