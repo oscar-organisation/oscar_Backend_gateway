@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: oscar-livekit-server
+    command: --config /etc/livekit.yaml
+    ports:
+      - "${LIVEKIT_PORT:-7880}:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    env_file:
+      - ../../env/.env.dev
+    volumes:
+      - ./${LIVEKIT_CONFIG_FILE:-livekit.yaml}:/etc/livekit.yaml
+    restart: unless-stopped
+
+  media-simulator:
+    build:
+      context: ../../services/media-simulator
+      dockerfile: Dockerfile
+    container_name: oscar-media-simulator
+    env_file:
+      - ../../env/.env.dev
+    volumes:
+      - ../../services/media-simulator/assets:/app/assets
+    environment:
+      - LIVEKIT_URL=ws://livekit:7880
+    depends_on:
+      - livekit
+    restart: unless-stopped
