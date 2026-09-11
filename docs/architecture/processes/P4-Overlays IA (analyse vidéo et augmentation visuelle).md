@@ -19,6 +19,10 @@ confirmés seront, eux, persistés séparément par l'API centrale. Cette distin
 remplace la mention `reliable` de l'ancien diagramme pour éviter qu'un paquet
 d'annotation ancien retarde le rendu temps réel.
 
+Chaque paquet lossy est borné à 1 200 octets et conserve en priorité les
+résultats les plus confiants. Cette marge respecte la recommandation LiveKit de
+1 300 octets pour éviter la fragmentation au niveau du MTU.
+
 ## Ce que ce pipeline fait
 
 Le P4 permet à l'**Intelligence Artificielle** de regarder ce que voit le robot, **comprendre** ce qui s'y trouve, et **renvoyer des informations contextuelles** qui sont superposées à la vidéo dans le casque VR de l'opérateur.
@@ -53,7 +57,10 @@ C'est une question importante. Plusieurs raisons :
 
 **Bande passante** : les overlays JSON à 5 Hz = quelques Ko/s. À 60 Hz ça deviendrait significatif.
 
-L'approche standard c'est : **analyse à fréquence réduite + interpolation côté client**. Le client garde les dernières détections affichées et les met à jour quand de nouvelles arrivent.
+L'approche retenue est : **analyse à fréquence réduite + expiration côté client**.
+Le cockpit met les boîtes à jour à chaque paquet et les retire après 1,2 seconde
+sans donnée fraîche, ce qui évite de présenter une détection ancienne comme
+encore valide.
 
 ## Le rôle clé d'AI Gateway
 
