@@ -1,0 +1,19 @@
+services:
+  perception-worker:
+    build: .
+    image: oscar/perception-worker:local
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    env_file:
+      - ${OSCAR_PERCEPTION_ENV_FILE:-worker.env}
+    volumes:
+      - perception-models:/var/lib/oscar/models
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+
+volumes:
+  perception-models:

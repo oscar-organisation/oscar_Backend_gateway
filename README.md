@@ -10,6 +10,7 @@ runtime embarqué installable sur les robots physiques.
 - `services/media-simulator/` : source vidéo de démonstration.
 - `services/token-generator/` : génération de jetons de développement.
 - `services/edge-agent/` : package embarqué canonique ROS 2 + LiveKit.
+- `services/perception-worker/` : inférence vidéo isolée et overlays LiveKit Data.
 - `docs/architecture/processes/` : contrats des flux média, commande et télémétrie.
 - `tools/` : diagnostic réseau et utilitaires opérateur.
 
