@@ -51,9 +51,12 @@ ln -sfn "$release_dir" /opt/oscar/current
 install -m 0755 "$bundle_dir/scripts/oscarctl" /usr/local/bin/oscarctl
 install -m 0755 "$bundle_dir/scripts/preflight.sh" /usr/local/libexec/oscar-preflight
 install -m 0755 "$bundle_dir/scripts/healthcheck.sh" /usr/local/bin/oscar-healthcheck
+install -m 0755 "$bundle_dir/scripts/network-recovery.sh" /usr/local/libexec/oscar-network-recovery
 install -m 0644 "$bundle_dir/systemd/oscar-edge.service" /etc/systemd/system/oscar-edge.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-health.service" /etc/systemd/system/oscar-edge-health.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-health.timer" /etc/systemd/system/oscar-edge-health.timer
+install -m 0644 "$bundle_dir/systemd/oscar-edge-network.service" /etc/systemd/system/oscar-edge-network.service
+install -m 0644 "$bundle_dir/systemd/oscar-edge-network.timer" /etc/systemd/system/oscar-edge-network.timer
 systemctl daemon-reload
 
 echo "OSCAR Edge $version installe dans $release_dir"

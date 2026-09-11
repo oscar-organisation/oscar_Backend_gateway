@@ -105,6 +105,9 @@ async def _run(args: argparse.Namespace) -> int:
         await publisher.connect()
         log.info("Publishing %s → track '%s' as %s", args.topic, cfg.track_name, cfg.identity)
         async for frame in source.frames(stop):
+            if publisher.disconnected.is_set():
+                log.warning("LiveKit connection lost; leaving for supervised restart")
+                return 75
             publisher.push_frame(frame)
     finally:
         await source.aclose()

@@ -191,8 +191,12 @@ class LiveKitCommandAgent:
 
         self.controller.stop()
         if self.room is not None:
-            await self.room.disconnect()
-            self.room = None
+            try:
+                await asyncio.wait_for(self.room.disconnect(), timeout=5.0)
+            except asyncio.TimeoutError:
+                log.warning("Timed out while disconnecting LiveKit command room")
+            finally:
+                self.room = None
 
     def _command_or_watchdog_stop(self, now: float) -> RobotVelocityCommand:
         if self._latest_received_at <= 0:

@@ -1,0 +1,9 @@
+[Unit]
+Description=OSCAR Edge network-change recovery
+After=docker.service tailscaled.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/oscar/robot.env
+ExecStart=/usr/local/libexec/oscar-network-recovery

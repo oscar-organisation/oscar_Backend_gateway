@@ -76,11 +76,13 @@ class LiveKitPublisher:
         self._publication: Optional[rtc.LocalTrackPublication] = None
         self._frames_published = 0
         self._last_stats_t = time.monotonic()
+        self.disconnected = asyncio.Event()
 
     async def connect(self) -> None:
         if self.room is not None:
             return
 
+        self.disconnected.clear()
         self.room = rtc.Room()
         self._wire_room_events()
 
@@ -148,6 +150,7 @@ class LiveKitPublisher:
         @self.room.on("disconnected")
         def _on_disconnect(reason):  # noqa: ANN001
             log.warning("Room disconnected: %s", reason)
+            self.disconnected.set()
 
         @self.room.on("participant_connected")
         def _on_join(p: rtc.RemoteParticipant) -> None:
@@ -202,11 +205,18 @@ class LiveKitPublisher:
         log.info("Closing LiveKit room")
         try:
             if self._publication is not None and self.track is not None:
-                await self.room.local_participant.unpublish_track(self.track.sid)
+                await asyncio.wait_for(
+                    self.room.local_participant.unpublish_track(self.track.sid),
+                    timeout=3.0,
+                )
+        except asyncio.TimeoutError:
+            log.warning("Timed out while unpublishing LiveKit track")
         except Exception:  # noqa: BLE001
             pass
         try:
-            await self.room.disconnect()
+            await asyncio.wait_for(self.room.disconnect(), timeout=5.0)
+        except asyncio.TimeoutError:
+            log.warning("Timed out while disconnecting LiveKit room")
         finally:
             self.room = None
             self.track = None

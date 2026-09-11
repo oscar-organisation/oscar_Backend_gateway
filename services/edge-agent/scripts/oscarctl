@@ -30,7 +30,7 @@ case "${1:-}" in
   activate)
     /usr/local/libexec/oscar-preflight
     "${compose[@]}" build
-    systemctl enable --now oscar-edge.service oscar-edge-health.timer
+    systemctl enable --now oscar-edge.service oscar-edge-health.timer oscar-edge-network.timer
     ;;
   start)
     systemctl start oscar-edge.service

@@ -1,0 +1,11 @@
+[Unit]
+Description=Monitor OSCAR Edge network changes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=20s
+AccuracySec=3s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
