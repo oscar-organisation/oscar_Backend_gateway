@@ -75,6 +75,20 @@ class OverlayPacket(BaseModel):
     model_version: str
     task: str
     detections: list[Detection]
+    detections_total: int | None = None
 
     def wire_bytes(self) -> bytes:
         return self.model_dump_json(by_alias=True, exclude_none=True).encode("utf-8")
+
+    def lossy_wire_bytes(self, max_bytes: int = 1200) -> bytes:
+        """Fit the freshest/highest-confidence boxes inside one network MTU."""
+        packet = self.model_copy(deep=True)
+        packet.detections.sort(key=lambda item: item.confidence, reverse=True)
+        packet.detections_total = len(packet.detections)
+        payload = packet.wire_bytes()
+        while len(payload) > max_bytes and packet.detections:
+            packet.detections.pop()
+            payload = packet.wire_bytes()
+        if len(payload) > max_bytes:
+            raise ValueError("les métadonnées de l'overlay dépassent la taille d'un paquet lossy")
+        return payload

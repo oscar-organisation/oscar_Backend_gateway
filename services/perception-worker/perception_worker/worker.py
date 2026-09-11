@@ -137,7 +137,7 @@ class PerceptionWorker:
                     detections=detections,
                 )
                 await self.room.local_participant.publish_data(
-                    packet.wire_bytes(), reliable=False, topic=self.runtime.overlay_topic,
+                    packet.lossy_wire_bytes(), reliable=False, topic=self.runtime.overlay_topic,
                 )
             except Exception:
                 log.exception("Inference failed for model %s", loaded.manifest.id)

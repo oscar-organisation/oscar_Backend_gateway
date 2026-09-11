@@ -13,6 +13,11 @@ watchdog, ni de la chaîne ROS : son mode de panne est volontairement fail-open.
 5. Inférence via l'adaptateur du runtime.
 6. Publication non fiable des boîtes normalisées sur `oscar.vision.overlay`.
 
+Les détections sont triées par confiance et le paquet est borné à 1 200 octets,
+sous la recommandation LiveKit de 1 300 octets pour éviter la fragmentation des
+messages lossy. `detections_total` indique combien de résultats existaient avant
+la réduction éventuelle.
+
 Le worker recharge le manifeste toutes les 10 secondes. Un toggle depuis la
 Sandbox ajoute ou retire donc un modèle sans redémarrer la vidéo ni le robot.
 

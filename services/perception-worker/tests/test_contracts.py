@@ -40,3 +40,18 @@ def test_worker_session_contract():
         expires_in_seconds=86400,
     )
     assert session.room == "oscar-robot-1"
+
+
+def test_lossy_overlay_packet_stays_under_mtu():
+    detections = [Detection(
+        detection_id=f"detection-{index}", label=f"produit-{index}", class_id=index,
+        confidence=0.5 + index / 100, x=0.1, y=0.1, width=0.2, height=0.2,
+    ) for index in range(20)]
+    packet = OverlayPacket(
+        robot_id="robot-1", room="oscar-robot-1", frame_timestamp_us=123,
+        frame_width=640, frame_height=480, model_id="model-1", model_name="Retail",
+        model_version="1.0.0", task="product_detection", detections=detections,
+    )
+    payload = packet.lossy_wire_bytes()
+    assert len(payload) <= 1200
+    assert b'"detections_total":20' in payload
