@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oscar-bot.com/schemas/edge/health-v1.json",
+  "title": "OSCAR Edge health snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "robotId", "version", "status", "checks", "observedAt"],
+  "properties": {
+    "contractVersion": { "const": 1 },
+    "robotId": { "type": "string" },
+    "version": { "type": "string" },
+    "status": { "enum": ["healthy", "degraded", "offline"] },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "checks": {
+      "type": "object",
+      "required": ["mediaAgent", "commandAgent", "cameraTopic", "commandTopic"],
+      "properties": {
+        "mediaAgent": { "type": "boolean" },
+        "commandAgent": { "type": "boolean" },
+        "cameraTopic": { "type": "boolean" },
+        "commandTopic": { "type": "boolean" }
+      }
+    }
+  }
+}

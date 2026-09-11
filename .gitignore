@@ -4,9 +4,24 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+*.egg-info/
 
 # Docker
 .docker/
+
+# Secrets et sorties générées
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.token
+**/dist/
+**/build/
+*.tar.gz
+*.log
+
 
 # Systeme
 .DS_Store
