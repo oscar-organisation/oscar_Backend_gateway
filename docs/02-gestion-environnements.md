@@ -4,8 +4,8 @@ Ce document décrit le rôle des fichiers `.env` dans le Lot 1.
 
 ## Fichiers
 - `.env.example` : Template neutre, à commiter dans le dépôt.
-- `.env.dev` : Fichier de travail local, contient des clés de test (`devkey`, `devsecret`). Ignoré par git.
-- `.env.prod` : Fichier sécurisé pour le serveur distant (à ne jamais commiter).
+- `.env.dev.example` : modèle versionné de développement. Le copier vers `.env.dev`, ignoré par Git.
+- `.env.prod.example` : modèle versionné de production. Le copier vers `.env.prod`, ignoré par Git.
 
 ## Script de Validation
 Avant tout démarrage (et avant de passer à l'étape suivante), le script `env/verify_env.ps1` est utilisé.

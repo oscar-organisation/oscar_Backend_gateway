@@ -1,0 +1,17 @@
+[Unit]
+Description=OSCAR Edge Runtime
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/oscar/current
+ExecStartPre=/usr/local/bin/oscarctl preflight
+ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env -f /opt/oscar/current/compose.yaml up --detach --remove-orphans
+ExecStop=/usr/bin/docker compose --env-file /etc/oscar/robot.env -f /opt/oscar/current/compose.yaml down --timeout 5
+TimeoutStartSec=300
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
