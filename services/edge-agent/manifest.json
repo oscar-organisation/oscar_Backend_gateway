@@ -1,0 +1,18 @@
+{
+  "name": "oscar-edge",
+  "version": "0.1.0",
+  "contractVersion": 1,
+  "supportedArchitectures": ["aarch64", "x86_64"],
+  "supportedRosDistributions": ["humble"],
+  "agents": ["media", "command"],
+  "livekit": {
+    "inputTopic": "oscar.xr.input",
+    "commandEchoTopic": "oscar.robot.command",
+    "videoTrack": "camera-front"
+  },
+  "safety": {
+    "deadmanRequired": true,
+    "watchdogMs": 300,
+    "motionOnBoot": false
+  }
+}

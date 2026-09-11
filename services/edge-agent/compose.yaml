@@ -1,0 +1,23 @@
+services:
+  edge:
+    image: oscar/edge:${OSCAR_EDGE_VERSION:-latest}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ROBOT_BASE_IMAGE: ${ROBOT_BASE_IMAGE:?ROBOT_BASE_IMAGE must be configured}
+        OSCAR_EDGE_VERSION: ${OSCAR_EDGE_VERSION:-dev}
+    container_name: oscar-edge
+    network_mode: host
+    ipc: host
+    restart: unless-stopped
+    env_file:
+      - /etc/oscar/robot.env
+    volumes:
+      - /etc/oscar/credentials:/run/secrets/oscar:ro
+    stop_grace_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"

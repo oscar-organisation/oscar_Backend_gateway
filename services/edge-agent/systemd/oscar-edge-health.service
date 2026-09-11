@@ -1,0 +1,7 @@
+[Unit]
+Description=OSCAR Edge health snapshot
+After=oscar-edge.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/oscar-healthcheck --quiet

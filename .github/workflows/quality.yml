@@ -1,0 +1,24 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  edge-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m unittest discover -s services/edge-agent/tests -v
+      - run: python -m compileall -q services/edge-agent/runtime services/edge-agent/tools
+      - run: ./services/edge-agent/scripts/build-release.sh
+
+  livekit-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: OSCAR_ENV_FILE=../../env/.env.dev.example docker compose -f infrastructure/livekit/docker-compose.yml config --quiet

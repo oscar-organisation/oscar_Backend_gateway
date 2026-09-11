@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+home="${OSCAR_HOME:-/opt/oscar/current}"
+config="${OSCAR_CONFIG_FILE:-/etc/oscar/robot.env}"
+compose=(docker compose --env-file "$config" -f "$home/compose.yaml")
+
+usage() {
+  cat <<'EOF'
+Usage: oscarctl COMMAND
+
+  preflight  Valider l'hote, la configuration et les credentials
+  activate   Construire, activer au demarrage et lancer OSCAR Edge
+  start      Lancer le runtime
+  stop       Arreter le runtime et publier un arret via l'agent
+  restart    Redemarrer proprement le runtime
+  status     Afficher l'etat systemd et conteneur
+  doctor     Executer le prevol puis le diagnostic ROS/runtime
+  logs       Suivre les journaux des agents
+  releases   Lister les releases installees
+  rollback   Revenir a une release deja installee
+  version    Afficher la version installee
+EOF
+}
+
+case "${1:-}" in
+  preflight)
+    exec /usr/local/libexec/oscar-preflight
+    ;;
+  activate)
+    /usr/local/libexec/oscar-preflight
+    "${compose[@]}" build
+    systemctl enable --now oscar-edge.service oscar-edge-health.timer
+    ;;
+  start)
+    systemctl start oscar-edge.service
+    ;;
+  stop)
+    systemctl stop oscar-edge.service
+    ;;
+  restart)
+    systemctl restart oscar-edge.service
+    ;;
+  status)
+    systemctl --no-pager --full status oscar-edge.service || true
+    "${compose[@]}" ps || true
+    ;;
+  doctor)
+    /usr/local/libexec/oscar-preflight
+    exec /usr/local/bin/oscar-healthcheck
+    ;;
+  logs)
+    exec "${compose[@]}" logs --follow --tail 200 edge
+    ;;
+  releases)
+    current="$(readlink -f /opt/oscar/current 2>/dev/null || true)"
+    for release in /opt/oscar/releases/*; do
+      [[ -d "$release" ]] || continue
+      marker=" "
+      [[ "$(readlink -f "$release")" == "$current" ]] && marker="*"
+      printf '%s %s\n' "$marker" "$(basename "$release")"
+    done
+    ;;
+  rollback)
+    target="${2:-}"
+    if [[ -z "$target" || ! -d "/opt/oscar/releases/$target" ]]; then
+      echo "Usage: oscarctl rollback VERSION_INSTALLEE" >&2
+      exit 2
+    fi
+    previous="$(readlink -f /opt/oscar/current)"
+    systemctl stop oscar-edge.service
+    ln -sfn "/opt/oscar/releases/$target" /opt/oscar/current
+    if ! /usr/local/libexec/oscar-preflight || ! systemctl start oscar-edge.service; then
+      ln -sfn "$previous" /opt/oscar/current
+      systemctl start oscar-edge.service
+      echo "Retour arriere refuse; release precedente restauree." >&2
+      exit 1
+    fi
+    echo "Release active: $target"
+    ;;
+  version)
+    cat "$home/VERSION"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

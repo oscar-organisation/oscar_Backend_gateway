@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oscar-bot.com/schemas/edge/enrollment-v1.json",
+  "title": "OSCAR robot enrollment response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "robot", "livekit"],
+  "properties": {
+    "contractVersion": { "const": 1 },
+    "robot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "profile", "organizationId", "siteId"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,62}$" },
+        "profile": { "type": "string", "minLength": 1 },
+        "organizationId": { "type": "string", "minLength": 1 },
+        "siteId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "livekit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["serverUrl", "roomName", "media", "command"],
+      "properties": {
+        "serverUrl": { "type": "string", "pattern": "^wss://" },
+        "roomName": { "type": "string", "minLength": 1 },
+        "media": { "$ref": "#/$defs/credential" },
+        "command": { "$ref": "#/$defs/credential" }
+      }
+    }
+  },
+  "$defs": {
+    "credential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "token", "expiresAt"],
+      "properties": {
+        "identity": { "type": "string", "minLength": 1 },
+        "token": { "type": "string", "minLength": 20 },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
