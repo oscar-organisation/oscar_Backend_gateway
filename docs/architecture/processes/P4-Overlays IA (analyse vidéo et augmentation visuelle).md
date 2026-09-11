@@ -3,6 +3,22 @@
 
 # P4 — Overlays IA (analyse vidéo et augmentation visuelle)
 
+## Implémentation canonique
+
+Le composant historiquement nommé **AI Gateway / MimicX** est désormais réalisé
+par `services/perception-worker`. Il ne dépend pas d'un fournisseur unique : le
+registre IA de l'API centrale lui transmet les modèles activés pour un robot et
+le worker sélectionne un adaptateur par runtime. Le premier adaptateur livré est
+Ultralytics YOLO (`.pt`), compatible avec les trois modèles de démonstration
+documentés par l'équipe (`product_on_floor`, `dirty_floor`, `empty_shelf`).
+
+Le contrat de sortie stable est `oscar.vision.overlay.v1`, publié sur le topic
+LiveKit `oscar.vision.overlay` avec des boîtes `x/y/width/height` normalisées dans
+`[0, 1]`. Les overlays sont non fiables car ils sont éphémères ; les incidents
+confirmés seront, eux, persistés séparément par l'API centrale. Cette distinction
+remplace la mention `reliable` de l'ancien diagramme pour éviter qu'un paquet
+d'annotation ancien retarde le rendu temps réel.
+
 ## Ce que ce pipeline fait
 
 Le P4 permet à l'**Intelligence Artificielle** de regarder ce que voit le robot, **comprendre** ce qui s'y trouve, et **renvoyer des informations contextuelles** qui sont superposées à la vidéo dans le casque VR de l'opérateur.
