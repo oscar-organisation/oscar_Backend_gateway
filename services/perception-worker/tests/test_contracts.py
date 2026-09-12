@@ -55,3 +55,42 @@ def test_lossy_overlay_packet_stays_under_mtu():
     payload = packet.lossy_wire_bytes()
     assert len(payload) <= 1200
     assert b'"detections_total":20' in payload
+
+
+def test_lurl_locale_prime_sur_celle_annoncee_par_lapi():
+    """Le worker tournant a cote du SFU doit joindre le media en direct.
+
+    Par le nom public, depuis le meme hote, la signalisation aboutit — le
+    participant apparait actif cote serveur — mais l'abonnement aux pistes
+    n'arrive jamais. Le jeton reste emis par l'API ; seule l'URL est locale.
+    """
+    import inspect
+
+    from perception_worker import worker
+
+    source = inspect.getsource(worker.PerceptionWorker.run)
+    assert "self.config.livekit_url or session.livekit_url" in source
+
+
+def test_la_room_est_creee_dans_la_boucle():
+    """Regression : une room construite hors boucle ne recoit aucun evenement.
+
+    `rtc.Room` capture `asyncio.get_event_loop()` a sa creation. Construire le
+    worker avant `asyncio.run` l'attache a une boucle qui ne tournera jamais :
+    la connexion reussit, le participant apparait actif cote serveur, et aucune
+    piste n'est jamais analysee.
+    """
+    import ast
+    import inspect
+
+    from perception_worker import main as module
+
+    arbre = ast.parse(inspect.getsource(module))
+    fonction = next(n for n in arbre.body
+                    if isinstance(n, ast.FunctionDef) and n.name == "main")
+    appels = [n for n in ast.walk(fonction) if isinstance(n, ast.Call)]
+    constructions = [n for n in appels
+                     if isinstance(n.func, ast.Name) and n.func.id == "PerceptionWorker"]
+    assert not constructions, (
+        "PerceptionWorker doit etre instancie dans une coroutine, pas dans main()"
+    )

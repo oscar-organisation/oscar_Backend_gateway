@@ -43,7 +43,12 @@ class PerceptionWorker:
             session = await self.registry.session()
             if self.runtime and session.room != self.runtime.room:
                 raise RuntimeError("La session LiveKit et le manifeste ciblent des rooms différentes")
-            livekit_url = session.livekit_url
+            # L'URL locale prime sur celle annoncée par l'API, le jeton restant
+            # émis par elle. Quand le worker tourne à côté du SFU, le nom public
+            # est le mauvais chemin pour le média : la signalisation aboutit,
+            # le participant apparaît actif, et l'abonnement aux pistes n'arrive
+            # jamais. Mesuré : sur l'URL interne l'abonnement est immédiat.
+            livekit_url = self.config.livekit_url or session.livekit_url
             livekit_token = session.token
         self._wire_events()
         await self.room.connect(livekit_url, livekit_token)
@@ -109,6 +114,14 @@ class PerceptionWorker:
         stream = rtc.VideoStream(track)
         async for event in stream:
             if not self.models or not self.runtime:
+                continue
+            # La piste arrive a ~30 images/s, l'inference est cadencee a 5 : la
+            # grande majorite des trames n'a aucune raison d'etre convertie.
+            # Sans ce test, chaque trame etait transcodee en RGB24 puis copiee
+            # dans un tableau numpy pour rien, et la file interne debordait
+            # (« native video stream queue overflow »).
+            maintenant = time.monotonic()
+            if all(charge.next_inference_at > maintenant for charge in self.models.values()):
                 continue
             frame = event.frame.convert(rtc.VideoBufferType.RGB24)
             rgb = np.frombuffer(frame.data, dtype=np.uint8).reshape(frame.height, frame.width, 3)
