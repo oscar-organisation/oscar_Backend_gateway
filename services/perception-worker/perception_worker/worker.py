@@ -33,6 +33,7 @@ class PerceptionWorker:
         self.models: dict[str, LoadedModel] = {}
         self._stop = asyncio.Event()
         self._track_task: asyncio.Task | None = None
+        self._track_sid: str | None = None
 
     async def run(self) -> None:
         await self.refresh_models()
@@ -72,11 +73,30 @@ class PerceptionWorker:
         def on_track_subscribed(track, publication, participant):  # noqa: ANN001
             if track.kind != rtc.TrackKind.KIND_VIDEO:
                 return
+            # La piste la plus recente l'emporte. Une nouvelle piste video dans
+            # la room d'un robot est presque toujours la meme camera republiee
+            # apres une reconnexion : l'ancienne tache attend alors sur un flux
+            # mort dont l'iterateur ne se termine jamais. Ignorer la nouvelle
+            # piste, comme avant, laissait le worker connecte, abonne, et
+            # n'analysant plus rien — sans une ligne d'erreur.
             if self._track_task and not self._track_task.done():
-                log.info("Ignoring additional video track %s from %s", publication.name, participant.identity)
-                return
-            log.info("Analyzing video track %s from %s", publication.name, participant.identity)
+                log.info("Switching analysis to video track %s from %s (previous stream released)",
+                         publication.name, participant.identity)
+                self._track_task.cancel()
+            else:
+                log.info("Analyzing video track %s from %s", publication.name, participant.identity)
+            self._track_sid = publication.sid
             self._track_task = asyncio.create_task(self._consume_video(track))
+
+        @self.room.on("track_unsubscribed")
+        def on_track_unsubscribed(track, publication, participant):  # noqa: ANN001
+            if publication.sid != self._track_sid:
+                return
+            log.info("Video track %s from %s unsubscribed; waiting for the next one",
+                     publication.name, participant.identity)
+            if self._track_task and not self._track_task.done():
+                self._track_task.cancel()
+            self._track_sid = None
 
         @self.room.on("disconnected")
         def on_disconnected(reason):  # noqa: ANN001
@@ -112,6 +132,19 @@ class PerceptionWorker:
 
     async def _consume_video(self, track) -> None:  # noqa: ANN001
         stream = rtc.VideoStream(track)
+        try:
+            await self._analyse_stream(stream)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Video analysis stopped unexpectedly; waiting for the next track")
+        finally:
+            try:
+                await stream.aclose()
+            except Exception:  # noqa: BLE001 - un flux deja mort peut refuser la fermeture
+                pass
+
+    async def _analyse_stream(self, stream) -> None:  # noqa: ANN001
         async for event in stream:
             if not self.models or not self.runtime:
                 continue
@@ -129,28 +162,39 @@ class PerceptionWorker:
 
     async def _infer_frame(self, frame: np.ndarray, width: int, height: int, timestamp_us: int) -> None:
         now = time.monotonic()
+        dus = []
         for loaded in list(self.models.values()):
             if now < loaded.next_inference_at:
                 continue
             loaded.next_inference_at = now + 1.0 / loaded.manifest.inference_fps
-            try:
-                detections = await asyncio.to_thread(loaded.adapter.infer, frame)
-                if not loaded.manifest.overlay_enabled:
-                    continue
-                packet = OverlayPacket(
-                    robot_id=self.config.robot_id,
-                    room=self.runtime.room,
-                    frame_timestamp_us=timestamp_us,
-                    frame_width=width,
-                    frame_height=height,
-                    model_id=loaded.manifest.id,
-                    model_name=loaded.manifest.name,
-                    model_version=loaded.manifest.version,
-                    task=loaded.manifest.task,
-                    detections=detections,
-                )
-                await self.room.local_participant.publish_data(
-                    packet.lossy_wire_bytes(), reliable=False, topic=self.runtime.overlay_topic,
-                )
-            except Exception:
-                log.exception("Inference failed for model %s", loaded.manifest.id)
+            dus.append(loaded)
+        # Les modeles d'une Box tournent en parallele. En sequence, le retard
+        # de l'overlay sur l'image affichee valait la somme des inferences :
+        # la boite arrivait quand la camera avait deja tourne. torch libere le
+        # GIL pendant l'inference, les threads se repartissent donc les coeurs.
+        await asyncio.gather(*(self._infer_one(loaded, frame, width, height, timestamp_us)
+                               for loaded in dus))
+
+    async def _infer_one(self, loaded: LoadedModel, frame: np.ndarray, width: int, height: int,
+                         timestamp_us: int) -> None:
+        try:
+            detections = await asyncio.to_thread(loaded.adapter.infer, frame)
+            if not loaded.manifest.overlay_enabled:
+                return
+            packet = OverlayPacket(
+                robot_id=self.config.robot_id,
+                room=self.runtime.room,
+                frame_timestamp_us=timestamp_us,
+                frame_width=width,
+                frame_height=height,
+                model_id=loaded.manifest.id,
+                model_name=loaded.manifest.name,
+                model_version=loaded.manifest.version,
+                task=loaded.manifest.task,
+                detections=detections,
+            )
+            await self.room.local_participant.publish_data(
+                packet.lossy_wire_bytes(), reliable=False, topic=self.runtime.overlay_topic,
+            )
+        except Exception:
+            log.exception("Inference failed for model %s", loaded.manifest.id)

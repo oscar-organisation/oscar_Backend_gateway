@@ -94,3 +94,29 @@ def test_la_room_est_creee_dans_la_boucle():
     assert not constructions, (
         "PerceptionWorker doit etre instancie dans une coroutine, pas dans main()"
     )
+
+
+def test_une_piste_republiee_remplace_lanalyse_en_cours():
+    """Regression : apres une reconnexion, la nouvelle piste etait ignoree.
+
+    L'ancienne tache attendait sur un flux mort ; le worker restait connecte et
+    abonne sans plus rien analyser. Mesure en production le 13 septembre :
+    detections arretees a 10:13:12, « Ignoring additional video track ».
+    """
+    import inspect
+
+    from perception_worker import worker
+
+    source = inspect.getsource(worker.PerceptionWorker._wire_events)
+    assert "Ignoring additional video track" not in source
+    assert "self._track_task.cancel()" in source
+    assert '"track_unsubscribed"' in source
+
+
+def test_les_modeles_dune_box_tournent_en_parallele():
+    import inspect
+
+    from perception_worker import worker
+
+    source = inspect.getsource(worker.PerceptionWorker._infer_frame)
+    assert "asyncio.gather" in source
