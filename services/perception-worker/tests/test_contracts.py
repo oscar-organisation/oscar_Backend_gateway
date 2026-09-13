@@ -143,3 +143,53 @@ def test_une_box_regle_la_resolution_dinference(config, attendu):
         "config": config,
     })
     assert resolution_inference(manifeste) == attendu
+
+
+def _paquet(n, model_id="modele-rayon"):
+    import uuid
+    return OverlayPacket(
+        robot_id="r", room="room", frame_timestamp_us=1, frame_width=640, frame_height=480,
+        model_id=model_id, model_name="SKU-110K", model_version="1", task="product_detection",
+        detections=[Detection(detection_id=str(uuid.uuid4()), label="product", class_id=0,
+                              confidence=0.5 + (i % 40) / 100, x=0.123456789, y=0.23456789,
+                              width=0.0345678, height=0.0456789) for i in range(n)],
+    )
+
+
+def test_une_image_de_rayon_passe_en_entier():
+    """Regression : 1 200 octets ne portaient que 5 ou 6 detections sur ~90."""
+    import json
+    payload, fiable = _paquet(90).fit_wire()
+    corps = json.loads(payload)
+    assert len(corps["detections"]) == 90
+    assert fiable is True
+    assert len(payload) < 14_000
+
+
+def test_peu_de_detections_restent_sur_le_canal_lossy():
+    payload, fiable = _paquet(3).fit_wire()
+    assert fiable is False and len(payload) <= 1200
+
+
+def test_le_contrat_lu_par_le_visualiseur_est_inchange():
+    import json
+    corps = json.loads(_paquet(2).fit_wire()[0])
+    assert corps["schema"] == "oscar.vision.overlay.v1"
+    assert set(corps["detections"][0]) >= {"detection_id", "label", "confidence", "x", "y", "width", "height"}
+
+
+def test_les_identifiants_ne_se_chevauchent_pas_entre_modeles():
+    import json
+    a = json.loads(_paquet(2, "modeleA-xxx").fit_wire()[0])["detections"]
+    b = json.loads(_paquet(2, "modeleB-yyy").fit_wire()[0])["detections"]
+    assert not {d["detection_id"] for d in a} & {d["detection_id"] for d in b}
+
+
+def test_au_dela_de_la_limite_on_garde_les_plus_sures():
+    import json
+    payload, fiable = _paquet(500).fit_wire()
+    corps = json.loads(payload)
+    assert fiable is True and len(payload) <= 14_000
+    assert corps["detections_total"] == 500
+    confiances = [d["confidence"] for d in corps["detections"]]
+    assert min(confiances) >= 0.5 and confiances == sorted(confiances, reverse=True)

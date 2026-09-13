@@ -12,6 +12,7 @@ from livekit import rtc
 from .adapters import ModelAdapter, create_adapter
 from .config import WorkerConfig
 from .exclusion import filtrer, lire_zones
+from .focus import nombre_cible, selectionner
 from .registry import ModelRegistryClient
 from .schemas import ModelManifest, OverlayPacket, RuntimeManifest
 
@@ -30,6 +31,8 @@ class PerceptionWorker:
         self.config = config
         self.registry = ModelRegistryClient(config)
         self.zones_exclusion = lire_zones(config.exclusion_zones)
+        # Derniere selection « ciblee » par modele, pour la stabilite de la vue.
+        self._focus_precedent: dict[str, list] = {}
         if self.zones_exclusion:
             log.info("Exclusion zones active: %s (overlap >= %.0f%%)",
                      self.zones_exclusion, config.exclusion_overlap * 100)
@@ -185,6 +188,10 @@ class PerceptionWorker:
         try:
             detections = await asyncio.to_thread(loaded.adapter.infer, frame)
             detections = filtrer(detections, self.zones_exclusion, self.config.exclusion_overlap)
+            cible = nombre_cible(loaded.manifest.config)
+            if cible:
+                detections = selectionner(detections, cible, self._focus_precedent.get(loaded.manifest.id))
+                self._focus_precedent[loaded.manifest.id] = detections
             if not loaded.manifest.overlay_enabled:
                 return
             packet = OverlayPacket(
@@ -199,8 +206,9 @@ class PerceptionWorker:
                 task=loaded.manifest.task,
                 detections=detections,
             )
+            payload, fiable = packet.fit_wire()
             await self.room.local_participant.publish_data(
-                packet.lossy_wire_bytes(), reliable=False, topic=self.runtime.overlay_topic,
+                payload, reliable=fiable, topic=self.runtime.overlay_topic,
             )
         except Exception:
             log.exception("Inference failed for model %s", loaded.manifest.id)
