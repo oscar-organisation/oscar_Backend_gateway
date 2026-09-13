@@ -120,3 +120,26 @@ def test_les_modeles_dune_box_tournent_en_parallele():
 
     source = inspect.getsource(worker.PerceptionWorker._infer_frame)
     assert "asyncio.gather" in source
+
+
+@pytest.mark.parametrize("config, attendu", [
+    ({}, (640, 640)),
+    ({"imgsz": [480, 640]}, (480, 640)),
+    ({"imgsz": [500, 650]}, (480, 640)),     # ramene au multiple de 32
+    ({"imgsz": [10, 99999]}, (160, 1280)),   # borne
+    ({"imgsz": "grand"}, (640, 640)),        # invalide : valeur du manifeste
+])
+def test_une_box_regle_la_resolution_dinference(config, attendu):
+    pytest.importorskip("ultralytics")
+    from perception_worker.adapters.yolo import resolution_inference
+    from perception_worker.schemas import ModelManifest
+
+    manifeste = ModelManifest.model_validate({
+        "id": "m", "name": "m", "version": "1", "task": "object_detection", "runtime": "ultralytics",
+        "sha256": "0" * 64, "artifact_name": "m.pt", "artifact_path": "/a",
+        "input": {"width": 640, "height": 640}, "output": {}, "labels": [],
+        "inference_fps": 5, "confidence": 0.35, "iou_threshold": 0.45,
+        "overlay_enabled": True, "incident_enabled": False, "camera": "primary",
+        "config": config,
+    })
+    assert resolution_inference(manifeste) == attendu

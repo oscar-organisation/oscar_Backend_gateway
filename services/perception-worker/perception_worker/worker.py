@@ -11,6 +11,7 @@ from livekit import rtc
 
 from .adapters import ModelAdapter, create_adapter
 from .config import WorkerConfig
+from .exclusion import filtrer, lire_zones
 from .registry import ModelRegistryClient
 from .schemas import ModelManifest, OverlayPacket, RuntimeManifest
 
@@ -28,6 +29,10 @@ class PerceptionWorker:
     def __init__(self, config: WorkerConfig):
         self.config = config
         self.registry = ModelRegistryClient(config)
+        self.zones_exclusion = lire_zones(config.exclusion_zones)
+        if self.zones_exclusion:
+            log.info("Exclusion zones active: %s (overlap >= %.0f%%)",
+                     self.zones_exclusion, config.exclusion_overlap * 100)
         self.room = rtc.Room()
         self.runtime: RuntimeManifest | None = None
         self.models: dict[str, LoadedModel] = {}
@@ -179,6 +184,7 @@ class PerceptionWorker:
                          timestamp_us: int) -> None:
         try:
             detections = await asyncio.to_thread(loaded.adapter.infer, frame)
+            detections = filtrer(detections, self.zones_exclusion, self.config.exclusion_overlap)
             if not loaded.manifest.overlay_enabled:
                 return
             packet = OverlayPacket(
