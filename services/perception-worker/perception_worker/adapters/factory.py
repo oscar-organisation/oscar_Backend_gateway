@@ -5,6 +5,10 @@ from ..schemas import ModelManifest
 
 
 def create_adapter(manifest: ModelManifest, artifact: Path) -> ModelAdapter:
+    if manifest.task == "product_identification":
+        from .identification import IdentificationAdapter
+
+        return IdentificationAdapter(manifest, artifact)
     if manifest.runtime in {"ultralytics", "pytorch"}:
         from .yolo import UltralyticsAdapter
 

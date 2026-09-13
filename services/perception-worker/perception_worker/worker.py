@@ -13,6 +13,9 @@ from .adapters import ModelAdapter, create_adapter
 from .config import WorkerConfig
 from .exclusion import filtrer, lire_zones
 from .focus import nombre_cible, selectionner
+from .adapters.identification import appliquer_identites, recadrer
+
+IDENTIFICATION = "product_identification"
 from .registry import ModelRegistryClient
 from .schemas import ModelManifest, OverlayPacket, RuntimeManifest
 
@@ -33,6 +36,9 @@ class PerceptionWorker:
         self.zones_exclusion = lire_zones(config.exclusion_zones)
         # Derniere selection « ciblee » par modele, pour la stabilite de la vue.
         self._focus_precedent: dict[str, list] = {}
+        # Noms connus par modele detecteur : [(Detection, Identite | None, instant)].
+        self._identites: dict[str, list] = {}
+        self._identification_en_cours: set[str] = set()
         if self.zones_exclusion:
             log.info("Exclusion zones active: %s (overlap >= %.0f%%)",
                      self.zones_exclusion, config.exclusion_overlap * 100)
@@ -172,6 +178,8 @@ class PerceptionWorker:
         now = time.monotonic()
         dus = []
         for loaded in list(self.models.values()):
+            if loaded.manifest.task == IDENTIFICATION:
+                continue  # second etage : il travaille sur les boites, pas sur l'image
             if now < loaded.next_inference_at:
                 continue
             loaded.next_inference_at = now + 1.0 / loaded.manifest.inference_fps
@@ -192,6 +200,7 @@ class PerceptionWorker:
             if cible:
                 detections = selectionner(detections, cible, self._focus_precedent.get(loaded.manifest.id))
                 self._focus_precedent[loaded.manifest.id] = detections
+            detections = self._nommer(loaded.manifest.id, detections, frame)
             if not loaded.manifest.overlay_enabled:
                 return
             packet = OverlayPacket(
@@ -212,3 +221,33 @@ class PerceptionWorker:
             )
         except Exception:
             log.exception("Inference failed for model %s", loaded.manifest.id)
+
+    def _nommer(self, detecteur_id: str, detections: list, frame: np.ndarray) -> list:
+        """Applique les noms connus et relance une identification si elle est due."""
+        identifieur = next((m for m in self.models.values() if m.manifest.task == IDENTIFICATION), None)
+        if identifieur is None or not detections:
+            return detections
+        maintenant = time.monotonic()
+        nommees = appliquer_identites(detections, self._identites.get(detecteur_id), maintenant)
+        if maintenant >= identifieur.next_inference_at and detecteur_id not in self._identification_en_cours:
+            identifieur.next_inference_at = maintenant + 1.0 / identifieur.manifest.inference_fps
+            # Recadrages copies tout de suite : le tampon de l'image est reutilise
+            # par le flux video des l'image suivante.
+            hauteur_min = getattr(identifieur.adapter, "hauteur_min", 0)
+            lot = [(d, recadrer(frame, d.x, d.y, d.width, d.height, hauteur_min=hauteur_min))
+                   for d in detections]
+            self._identification_en_cours.add(detecteur_id)
+            asyncio.create_task(self._identifier(detecteur_id, identifieur, lot))
+        return nommees
+
+    async def _identifier(self, detecteur_id: str, identifieur: LoadedModel, lot: list) -> None:
+        try:
+            valides = [(d, r) for d, r in lot if r is not None]
+            identites = await asyncio.to_thread(identifieur.adapter.identifier, [r for _, r in valides])
+            instant = time.monotonic()
+            self._identites[detecteur_id] = [(d, i, instant) for (d, _), i in zip(valides, identites)]
+        except Exception:
+            log.exception("Identification failed for detector %s", detecteur_id)
+        finally:
+            self._identification_en_cours.discard(detecteur_id)
+

@@ -52,6 +52,12 @@ class Detection(BaseModel):
     label: str
     class_id: int
     confidence: float = Field(ge=0, le=1)
+    # Renseignes par le second etage d'identification, absents sinon. Le
+    # visualiseur lit `label` ; ces champs servent aux usages metier.
+    product_code: str | None = None
+    brand: str | None = None
+    category: str | None = None
+    match_score: float | None = None
     x: float = Field(ge=0, le=1)
     y: float = Field(ge=0, le=1)
     width: float = Field(ge=0, le=1)
@@ -111,6 +117,8 @@ class OverlayPacket(BaseModel):
                 "confidence": round(d.confidence, 3),
                 "x": round(d.x, 4), "y": round(d.y, 4),
                 "width": round(d.width, 4), "height": round(d.height, 4),
+                **({"product_code": d.product_code, "brand": d.brand, "category": d.category,
+                    "match_score": round(d.match_score, 3)} if d.product_code else {}),
             }
             for i, d in enumerate(self.detections)
         ]
