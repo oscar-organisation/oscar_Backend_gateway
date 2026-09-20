@@ -157,6 +157,16 @@ class RuntimeNonSuperviseTest(unittest.TestCase):
         MODULE.executer = self._executer
         self.temp.cleanup()
 
+    def test_une_unite_installee_mais_inactive_ne_compte_pas(self) -> None:
+        """Installer la release pose l'unité bien avant qu'on ne bascule dessus."""
+        reponses = {"is-active": (3, "inactive"), "is-enabled": (1, "disabled")}
+        MODULE.executer = lambda commande, timeout=300.0: reponses.get(commande[1], (0, ""))
+        self.assertFalse(MODULE.runtime_supervise())
+
+    def test_une_unite_active_compte(self) -> None:
+        MODULE.executer = lambda commande, timeout=300.0: (0, "active")
+        self.assertTrue(MODULE.runtime_supervise())
+
     def test_la_configuration_est_deposee_et_le_dit(self) -> None:
         change, detail = MODULE.appliquer({"OSCAR_ENABLE_MEDIA": "true"}, self.env, redemarrer=True)
         self.assertTrue(change)

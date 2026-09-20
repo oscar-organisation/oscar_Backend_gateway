@@ -214,15 +214,23 @@ def executer(commande, timeout=300.0):
 
 def runtime_supervise(unite="oscar-edge.service"):
     # type: (str) -> bool
-    """Le runtime est-il gere par systemd sur cet hote ?
+    """Le runtime est-il reellement pris en charge par systemd sur cet hote ?
 
     Une partie du parc tourne encore avec des agents lances a la main, avant le
     paquet embarque. La reconciliation doit rester utile dans cet etat : elle
-    depose la configuration et le dit, plutot que d'echouer sur une unite
-    inexistante.
+    depose la configuration et le dit, plutot que d'echouer sur un runtime
+    qu'elle ne pilote pas.
+
+    L'existence du fichier d'unite ne suffit pas : installer la release le pose
+    sur le disque bien avant qu'on ne bascule. Tant que l'unite n'est ni active
+    ni activee au demarrage, le runtime en charge est l'ancien, et un
+    diagnostic sur un conteneur absent ne prouverait qu'une chose fausse.
     """
-    code, _ = executer(["systemctl", "cat", unite], timeout=20.0)
-    return code == 0
+    for verbe in ("is-active", "is-enabled"):
+        code, _ = executer(["systemctl", verbe, unite], timeout=20.0)
+        if code == 0:
+            return True
+    return False
 
 
 def appliquer(projection, env_genere, redemarrer=True):
