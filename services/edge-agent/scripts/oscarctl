@@ -32,7 +32,7 @@ case "${1:-}" in
   activate)
     /usr/local/libexec/oscar-preflight
     "${compose[@]}" build
-    systemctl enable --now oscar-edge.service oscar-edge-health.timer oscar-edge-network.timer
+    systemctl enable --now oscar-edge-bridge.service oscar-edge.service oscar-edge-health.timer oscar-edge-network.timer
     # La reconciliation n'est activee que si le robot sait a qui parler : sans
     # OSCAR_API_URL, la minuterie echouerait a chaque passage pour rien.
     if grep -qs '^OSCAR_API_URL=.\+' "$config"; then

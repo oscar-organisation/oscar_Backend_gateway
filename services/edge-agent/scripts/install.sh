@@ -62,6 +62,7 @@ install -m 0755 "$bundle_dir/scripts/healthcheck.sh" /usr/local/bin/oscar-health
 install -m 0755 "$bundle_dir/scripts/network-recovery.sh" /usr/local/libexec/oscar-network-recovery
 install -m 0755 "$bundle_dir/tools/bundle_sync.py" /usr/local/libexec/oscar-bundle-sync
 install -m 0644 "$bundle_dir/systemd/oscar-edge.service" /etc/systemd/system/oscar-edge.service
+install -m 0644 "$bundle_dir/systemd/oscar-edge-bridge.service" /etc/systemd/system/oscar-edge-bridge.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-health.service" /etc/systemd/system/oscar-edge-health.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-health.timer" /etc/systemd/system/oscar-edge-health.timer
 install -m 0644 "$bundle_dir/systemd/oscar-edge-network.service" /etc/systemd/system/oscar-edge-network.service
