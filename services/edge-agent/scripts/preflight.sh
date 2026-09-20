@@ -23,6 +23,22 @@ if [[ -r "$config" ]]; then
     && ok "image ROS constructeur configuree" || fail "ROBOT_BASE_IMAGE non configuree"
 fi
 
+# Reconciliation des bundles : optionnelle, mais si elle est configuree a
+# moitie, autant le dire maintenant plutot qu'au premier deploiement refuse.
+if [[ -n "${OSCAR_API_URL:-}" ]]; then
+  agent_key="/etc/oscar/credentials/agent.key"
+  if [[ -r "$agent_key" && -s "$agent_key" ]]; then
+    perms="$(stat -c '%a' "$agent_key" 2>/dev/null || stat -f '%Lp' "$agent_key")"
+    if [[ "$perms" == 600 || "$perms" == 400 ]]; then
+      ok "cle d'agent presente et protegee"
+    else
+      fail "cle d'agent lisible par d'autres comptes ($perms): chmod 600 $agent_key"
+    fi
+  else
+    fail "OSCAR_API_URL configure mais cle d'agent absente: $agent_key"
+  fi
+fi
+
 python3 "$root/tools/validate_config.py" \
   --env "$config" \
   --media-token /etc/oscar/credentials/media.json \

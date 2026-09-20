@@ -103,6 +103,68 @@ sudo oscarctl doctor
 Le premier demarrage est realise roues levees ou robot sur chandelles. Aucun
 paquet recu ne doit produire de mouvement sans maintien du deadman.
 
+## 6 bis. Reconciliation du bundle publie
+
+Le robot ne recoit pas sa configuration : il va la chercher. La minuterie
+`oscar-edge-sync.timer` appelle toutes les 45 secondes la console, applique le
+bundle publie pour ce robot, puis rend compte. Aucune connexion entrante n'est
+necessaire, ce qui vaut aussi derriere un partage de connexion telephonique ou
+un Wi-Fi d'entreprise.
+
+Le cycle est toujours le meme :
+
+```
+interroger -> projeter -> comparer -> appliquer si besoin -> rendre compte
+```
+
+Deux fichiers separent les responsabilites, et c'est le point a retenir :
+
+| Fichier | Qui l'ecrit | Ce qu'il decide |
+| --- | --- | --- |
+| `/etc/oscar/robot.env` | le technicien, une fois | comment ca se branche sur ce chassis : topics ROS, limites de vitesse, resolution |
+| `/etc/oscar/bundle.env` | `oscar-bundle-sync` | ce qui tourne : quels agents, quelle version de bundle |
+
+Une composition ne connait pas le cablage d'un chassis, et un chassis n'a pas a
+connaitre les intentions d'une flotte. Le fichier genere est reecrit a chaque
+reconciliation : toute modification manuelle y est perdue.
+
+Prerequis dans `/etc/oscar/robot.env` et `/etc/oscar/credentials` :
+
+```bash
+OSCAR_API_URL=https://api-admin.oscar-bot.com/api      # dans robot.env
+sudo install -m 600 /dev/stdin /etc/oscar/credentials/agent.key <<< "CLE_AGENT"
+sudo systemctl enable --now oscar-edge-sync.timer
+```
+
+La cle d'agent vit hors de `robot.env` parce que ce fichier est injecte dans le
+conteneur : un secret de plan de controle n'a rien a faire dans l'espace des
+agents.
+
+Commandes utiles :
+
+```bash
+oscarctl sync --no-restart   # verification a blanc, sans couper la video
+oscarctl sync                # reconciliation immediate
+oscarctl bundle              # bundle applique et verdict du dernier passage
+journalctl -u oscar-edge-sync.service -n 50
+```
+
+Ce que l'agent refuse, plutot que de l'appliquer a moitie :
+
+- un manifeste dont le format n'est pas `oscar.bundle.runtime.v1` ;
+- une capacite reclamee mais non fournie ici (publication audio, par exemple) ;
+- une publication video alors que le profil ne declare pas `OSCAR_CAMERA_TOPIC` ;
+- un agent sans role reconnu, ni publication video ni reception.
+
+Chaque refus remonte a la console avec son motif, et le runtime en place
+continue de tourner. Les composants d'une composition qui visent un autre
+environnement — la telecommande web, un service serveur — sont ignores ici et
+listes dans le compte rendu : ils se deploient ailleurs.
+
+Le compte rendu porte l'empreinte du manifeste applique. Si elle differe de
+celle publiee, la console enregistre un echec : une version qui ne correspond a
+rien de publie n'est pas une version en service.
+
 ## 7. Recette usine puis recette site
 
 La recette usine couvre materiel, ROS, video, commandes, securite et endurance.

@@ -1,0 +1,14 @@
+[Unit]
+Description=Reconciliation periodique du bundle OSCAR
+
+[Timer]
+# 45 s : assez court pour qu'un deploiement demande depuis la console parte
+# pendant que l'operateur regarde encore son ecran, assez long pour ne pas
+# marteler l'API depuis une flotte entiere.
+OnBootSec=45s
+OnUnitActiveSec=45s
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=OSCAR Edge bundle reconciliation
+Documentation=file:/opt/oscar/current/docs/protocole-deploiement-embarque.md
+Wants=network-online.target
+After=network-online.target oscar-edge.service
+
+[Service]
+Type=oneshot
+# Le robot tire sa configuration : la console n'ouvre jamais de connexion vers
+# lui. Un passage qui echoue laisse le runtime en place et reessaiera.
+ExecStart=/usr/local/libexec/oscar-bundle-sync --version ${OSCAR_EDGE_VERSION}
+EnvironmentFile=-/etc/oscar/robot.env
+TimeoutStartSec=420

@@ -12,7 +12,11 @@ services:
     ipc: host
     restart: unless-stopped
     env_file:
+      # Profil materiel du chassis, puis configuration issue du bundle publie.
+      # L'ordre compte : le bundle decide de ce qui tourne, le profil de la
+      # maniere dont cela se branche.
       - /etc/oscar/robot.env
+      - /etc/oscar/bundle.env
     volumes:
       - /etc/oscar/credentials:/run/secrets/oscar:ro
     stop_grace_period: 5s
