@@ -20,6 +20,8 @@ pire des reponses, puisque l'operateur l'a composee en connaissance de cause.
 """
 
 import argparse
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -244,7 +246,7 @@ def appliquer(projection, env_genere, redemarrer=True):
 def verifier_sante(chemin="/usr/local/bin/oscar-healthcheck"):
     # type: (str) -> Tuple[bool, str]
     if not Path(chemin).exists():
-        return True, "diagnostic indisponible"
+        return False, "diagnostic indisponible : execution non confirmee"
     code, sortie = executer([chemin, "--quiet"], timeout=120.0)
     return code == 0, sortie or "diagnostic silencieux"
 
@@ -286,11 +288,22 @@ def reconcilier(options):
         logger.info("aucun deploiement demande pour %s", robot)
         return 0
 
+    canonique = json.dumps(charge.get("manifest") or {}, sort_keys=True,
+                           separators=(",", ":"), ensure_ascii=False)
+    checksum = hashlib.sha256(canonique.encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(checksum, str(deploiement.get("checksum") or "")):
+        logger.error("empreinte du manifeste invalide : configuration en place conservee")
+        return 65
+
     etat = lire_etat(options.state_file)
     deja = (
+        etat.get("deployment_id") == deploiement.get("id")
+        and
         etat.get("checksum") == deploiement.get("checksum")
-        and etat.get("statut") == "active"
-        and deploiement.get("statut") == "active"
+        and (
+            etat.get("statut") == deploiement.get("statut") == "active"
+            or (options.no_restart and etat.get("statut") == deploiement.get("statut") == "prepared")
+        )
     )
     if deja and not options.force:
         logger.info("version %s deja appliquee", deploiement.get("version"))
@@ -313,10 +326,11 @@ def reconcilier(options):
         return 70
 
     if options.no_restart or not runtime_supervise():
-        sain, diagnostic = True, "diagnostic ignore (runtime non supervise ici)"
+        sain, diagnostic = True, "configuration preparee uniquement ; execution non confirmee"
+        statut = "prepared"
     else:
         sain, diagnostic = verifier_sante()
-    statut = "active" if sain else "failed"
+        statut = "active" if sain else "failed"
     message = detail if sain else f"{detail} ; diagnostic en echec : {diagnostic}"
     _rendre_compte_sur(options, base, robot, cle, deploiement, statut, message, {
         "ignores": ignores,

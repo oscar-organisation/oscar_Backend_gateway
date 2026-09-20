@@ -34,8 +34,8 @@ def agent(code: str, *, video: bool = False, audio: bool = False, entrees: bool 
     }
 
 
-def charge(composants: list[dict], *, checksum: str = "abc", version: int = 3) -> dict:
-    return {
+def charge(composants: list[dict], *, checksum: str | None = None, version: int = 3) -> dict:
+    resultat = {
         "format": "oscar.bundle.runtime.v1",
         "robot": "oscar-01",
         "deployment": {"id": "d1", "statut": "delivered", "bundle": "robot-magasin",
@@ -47,6 +47,10 @@ def charge(composants: list[dict], *, checksum: str = "abc", version: int = 3) -
             "liaisons": [],
         },
     }
+    resultat["deployment"]["checksum"] = checksum or MODULE.hashlib.sha256(
+        json.dumps(resultat["manifest"], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    return resultat
 
 
 class ProjectionTest(unittest.TestCase):
@@ -215,23 +219,38 @@ class CycleTest(unittest.TestCase):
             "--no-restart", *[str(item) for item in extra.get("args", [])],
         ])
 
-    def test_un_deploiement_applique_est_declare_actif(self) -> None:
+    def test_sans_redemarrage_la_configuration_est_preparee_pas_active(self) -> None:
         code = MODULE.reconcilier(self._options())
         self.assertEqual(code, 0)
         self.assertEqual(len(self.comptes_rendus), 1)
         compte = self.comptes_rendus[0]
-        self.assertEqual(compte["statut"], "active")
-        self.assertEqual(compte["checksum"], "abc")
+        self.assertEqual(compte["statut"], "prepared")
+        self.assertEqual(compte["checksum"], self.reponse["deployment"]["checksum"])
         self.assertIn("OSCAR_ENABLE_MEDIA=true", self.env.read_text(encoding="utf-8"))
         # La trace locale permet de repartir apres une coupure reseau.
-        self.assertEqual(json.loads(self.etat.read_text(encoding="utf-8"))["statut"], "active")
+        self.assertEqual(json.loads(self.etat.read_text(encoding="utf-8"))["statut"], "prepared")
 
-    def test_une_version_deja_active_nest_pas_reappliquee(self) -> None:
+    def test_une_version_deja_preparee_nest_pas_reappliquee(self) -> None:
         MODULE.reconcilier(self._options())
-        self.reponse["deployment"]["statut"] = "active"
+        self.reponse["deployment"]["statut"] = "prepared"
         code = MODULE.reconcilier(self._options())
         self.assertEqual(code, 0)
         self.assertEqual(len(self.comptes_rendus), 1)
+
+    def test_un_manifeste_altere_ne_touche_pas_la_configuration(self) -> None:
+        self.reponse["manifest"]["bundle"]["nom"] = "alteration"
+        self.assertEqual(MODULE.reconcilier(self._options()), 65)
+        self.assertFalse(self.env.exists())
+        self.assertEqual(self.comptes_rendus, [])
+
+    def test_un_nouveau_deploiement_identique_recoit_son_propre_rapport(self) -> None:
+        MODULE.reconcilier(self._options())
+        self.reponse["deployment"].update(id="d2", statut="prepared")
+        self.assertEqual(MODULE.reconcilier(self._options()), 0)
+        self.assertEqual(self.comptes_rendus[-1]["deployment_id"], "d2")
+
+    def test_un_diagnostic_absent_ne_prouve_pas_la_sante(self) -> None:
+        self.assertFalse(MODULE.verifier_sante(str(Path(self.temp.name) / "absent"))[0])
 
     def test_une_composition_inapplicable_est_declaree_en_echec(self) -> None:
         self.reponse = charge([{"code": "INSTANCE_SERVICE_MEDIA",
