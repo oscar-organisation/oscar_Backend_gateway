@@ -61,6 +61,7 @@ install -m 0755 "$bundle_dir/scripts/preflight.sh" /usr/local/libexec/oscar-pref
 install -m 0755 "$bundle_dir/scripts/healthcheck.sh" /usr/local/bin/oscar-healthcheck
 install -m 0755 "$bundle_dir/scripts/network-recovery.sh" /usr/local/libexec/oscar-network-recovery
 install -m 0755 "$bundle_dir/tools/bundle_sync.py" /usr/local/libexec/oscar-bundle-sync
+install -m 0755 "$bundle_dir/tools/release_sync.py" /usr/local/libexec/oscar-release-sync
 install -m 0644 "$bundle_dir/systemd/oscar-edge.service" /etc/systemd/system/oscar-edge.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-bridge.service" /etc/systemd/system/oscar-edge-bridge.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-health.service" /etc/systemd/system/oscar-edge-health.service
@@ -69,6 +70,8 @@ install -m 0644 "$bundle_dir/systemd/oscar-edge-network.service" /etc/systemd/sy
 install -m 0644 "$bundle_dir/systemd/oscar-edge-network.timer" /etc/systemd/system/oscar-edge-network.timer
 install -m 0644 "$bundle_dir/systemd/oscar-edge-sync.service" /etc/systemd/system/oscar-edge-sync.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-sync.timer" /etc/systemd/system/oscar-edge-sync.timer
+install -m 0644 "$bundle_dir/systemd/oscar-edge-release.service" /etc/systemd/system/oscar-edge-release.service
+install -m 0644 "$bundle_dir/systemd/oscar-edge-release.timer" /etc/systemd/system/oscar-edge-release.timer
 systemctl daemon-reload
 
 echo "OSCAR Edge $version installe dans $release_dir"

@@ -1,0 +1,13 @@
+[Unit]
+Description=OSCAR Edge release update
+Documentation=file:/opt/oscar/current/docs/protocole-deploiement-embarque.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# La mise a jour du paquet precede la reconciliation du bundle : une
+# composition peut reclamer une capacite que seule la nouvelle version fournit.
+ExecStart=/usr/local/libexec/oscar-release-sync
+EnvironmentFile=-/etc/oscar/robot.env
+TimeoutStartSec=1200

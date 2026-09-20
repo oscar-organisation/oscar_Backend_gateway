@@ -17,6 +17,7 @@ Usage: oscarctl COMMAND
   status     Afficher l'etat systemd et conteneur
   doctor     Executer le prevol puis le diagnostic ROS/runtime
   sync       Reconcilier maintenant avec le bundle publie
+  upgrade    Chercher et appliquer une nouvelle version du paquet
   bundle     Afficher le bundle applique sur ce robot
   logs       Suivre les journaux des agents
   releases   Lister les releases installees
@@ -36,7 +37,7 @@ case "${1:-}" in
     # La reconciliation n'est activee que si le robot sait a qui parler : sans
     # OSCAR_API_URL, la minuterie echouerait a chaque passage pour rien.
     if grep -qs '^OSCAR_API_URL=.\+' "$config"; then
-      systemctl enable --now oscar-edge-sync.timer
+      systemctl enable --now oscar-edge-sync.timer oscar-edge-release.timer
     else
       echo "OSCAR_API_URL absent de $config : reconciliation des bundles non activee."
     fi
@@ -64,6 +65,10 @@ case "${1:-}" in
   sync)
     shift
     exec /usr/local/libexec/oscar-bundle-sync "$@"
+    ;;
+  upgrade)
+    shift
+    exec /usr/local/libexec/oscar-release-sync "$@"
     ;;
   bundle)
     applied="/var/lib/oscar/bundle-applied.json"
