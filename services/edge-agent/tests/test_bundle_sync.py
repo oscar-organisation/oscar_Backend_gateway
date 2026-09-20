@@ -252,6 +252,23 @@ class CycleTest(unittest.TestCase):
     def test_un_diagnostic_absent_ne_prouve_pas_la_sante(self) -> None:
         self.assertFalse(MODULE.verifier_sante(str(Path(self.temp.name) / "absent"))[0])
 
+    def test_un_hote_sans_runtime_supervise_ne_reecrit_pas_son_compte_rendu(self) -> None:
+        """La minuterie repasse toutes les 45 s : elle ne doit pas rejouer le meme verdict."""
+        executer_reel = MODULE.executer
+        MODULE.executer = lambda commande, timeout=300.0: (4, "Unit oscar-edge.service could not be found.")
+        try:
+            options = MODULE.construire_arguments([
+                "--config", str(self.config), "--key-file", str(self.cle),
+                "--env-file", str(self.env), "--state-file", str(self.etat),
+            ])
+            MODULE.reconcilier(options)
+            self.assertEqual(self.comptes_rendus[-1]["statut"], "prepared")
+            self.reponse["deployment"]["statut"] = "prepared"
+            MODULE.reconcilier(options)
+            self.assertEqual(len(self.comptes_rendus), 1)
+        finally:
+            MODULE.executer = executer_reel
+
     def test_une_composition_inapplicable_est_declaree_en_echec(self) -> None:
         self.reponse = charge([{"code": "INSTANCE_SERVICE_MEDIA",
                                 "cible": "ENVIRONNEMENT_EXECUTION_ROBOT",

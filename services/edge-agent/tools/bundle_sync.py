@@ -296,14 +296,14 @@ def reconcilier(options):
         return 65
 
     etat = lire_etat(options.state_file)
+    # Sur un hote ou le runtime n'est pas supervise, un passage reussi s'arrete
+    # a « prepared » : sans cette equivalence, la minuterie reecrirait le meme
+    # compte rendu toutes les 45 secondes.
+    verdict_attendu = "prepared" if (options.no_restart or not runtime_supervise()) else "active"
     deja = (
         etat.get("deployment_id") == deploiement.get("id")
-        and
-        etat.get("checksum") == deploiement.get("checksum")
-        and (
-            etat.get("statut") == deploiement.get("statut") == "active"
-            or (options.no_restart and etat.get("statut") == deploiement.get("statut") == "prepared")
-        )
+        and etat.get("checksum") == deploiement.get("checksum")
+        and etat.get("statut") == deploiement.get("statut") == verdict_attendu
     )
     if deja and not options.force:
         logger.info("version %s deja appliquee", deploiement.get("version"))
