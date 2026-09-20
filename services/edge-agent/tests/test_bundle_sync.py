@@ -140,6 +140,26 @@ class ApplicationTest(unittest.TestCase):
         self.assertIn("genere par oscar-bundle-sync", self.env.read_text(encoding="utf-8"))
 
 
+class RuntimeNonSuperviseTest(unittest.TestCase):
+    """Une partie du parc tourne encore sans le paquet embarque."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.env = Path(self.temp.name) / "bundle.env"
+        self._executer = MODULE.executer
+        MODULE.executer = lambda commande, timeout=300.0: (4, "Unit oscar-edge.service could not be found.")
+
+    def tearDown(self) -> None:
+        MODULE.executer = self._executer
+        self.temp.cleanup()
+
+    def test_la_configuration_est_deposee_et_le_dit(self) -> None:
+        change, detail = MODULE.appliquer({"OSCAR_ENABLE_MEDIA": "true"}, self.env, redemarrer=True)
+        self.assertTrue(change)
+        self.assertIn("non supervise", detail)
+        self.assertTrue(self.env.exists())
+
+
 class EnvTest(unittest.TestCase):
     def test_lecture_dun_profil_avec_commentaires_et_guillemets(self) -> None:
         with tempfile.TemporaryDirectory() as dossier:

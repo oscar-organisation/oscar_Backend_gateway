@@ -19,8 +19,6 @@ reconciliation echoue et le dit : appliquer a moitie une composition serait la
 pire des reponses, puisque l'operateur l'a composee en connaissance de cause.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import logging
@@ -31,6 +29,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 FORMAT_ATTENDU = "oscar.bundle.runtime.v1"
 CIBLE_ROBOT = "ENVIRONNEMENT_EXECUTION_ROBOT"
@@ -60,9 +59,9 @@ logger = logging.getLogger("oscar-bundle-sync")
 # --------------------------------------------------------------------------- #
 #  Lecture de configuration
 # --------------------------------------------------------------------------- #
-def lire_env(chemin: Path) -> dict[str, str]:
+def lire_env(chemin: Path) -> Dict[str, str]:
     """Lit un fichier d'environnement simple (CLE=valeur, # commentaires)."""
-    valeurs: dict[str, str] = {}
+    valeurs = {}  # type: Dict[str, str]
     if not chemin.exists():
         return valeurs
     for ligne in chemin.read_text(encoding="utf-8").splitlines():
@@ -77,17 +76,18 @@ def lire_env(chemin: Path) -> dict[str, str]:
 # --------------------------------------------------------------------------- #
 #  Projection du manifeste vers la configuration du runtime
 # --------------------------------------------------------------------------- #
-def projeter(charge: dict, profil: dict[str, str]) -> tuple[dict[str, str], list[str], list[str]]:
+def projeter(charge, profil):
+    # type: (dict, Dict[str, str]) -> Tuple[Dict[str, str], List[str], List[str]]
     """Traduit un manifeste en variables de runtime.
 
     Renvoie la projection, les composants ignores (ceux qui ne s'executent pas
     sur un robot) et les refus (capacites reclamees mais non fournies ici).
     """
-    refus: list[str] = []
-    ignores: list[str] = []
+    refus = []  # type: List[str]
+    ignores = []  # type: List[str]
 
     if charge.get("format") != FORMAT_ATTENDU:
-        return {}, [], [f"format de manifeste inconnu : {charge.get('format')!r}"]
+            return {}, [], ["format de manifeste inconnu : %r" % (charge.get("format"),)]
 
     manifeste = charge.get("manifest") or {}
     deploiement = charge.get("deployment") or {}
@@ -95,7 +95,7 @@ def projeter(charge: dict, profil: dict[str, str]) -> tuple[dict[str, str], list
 
     media = False
     commande = False
-    agents: list[str] = []
+    agents = []  # type: List[str]
 
     for composant in manifeste.get("composants") or []:
         cible = composant.get("cible") or bundle.get("cible")
@@ -141,7 +141,8 @@ def projeter(charge: dict, profil: dict[str, str]) -> tuple[dict[str, str], list
     return projection, ignores, refus
 
 
-def rendu_env(projection: dict[str, str]) -> str:
+def rendu_env(projection):
+    # type: (Dict[str, str]) -> str
     """Rend la projection sous forme de fichier, dans un ordre stable.
 
     L'ordre compte : c'est la comparaison du contenu qui decide s'il faut
@@ -151,14 +152,16 @@ def rendu_env(projection: dict[str, str]) -> str:
     return ENTETE + "\n".join(lignes) + "\n"
 
 
-def lire_etat(chemin: Path) -> dict:
+def lire_etat(chemin):
+    # type: (Path) -> dict
     try:
         return json.loads(chemin.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
 
 
-def ecrire_fichier(chemin: Path, contenu: str, mode: int = 0o640) -> None:
+def ecrire_fichier(chemin, contenu, mode=0o640):
+    # type: (Path, str, int) -> None
     """Ecriture atomique : un fichier a moitie ecrit casserait le demarrage."""
     chemin.parent.mkdir(parents=True, exist_ok=True)
     temporaire = chemin.with_suffix(chemin.suffix + ".tmp")
@@ -170,7 +173,8 @@ def ecrire_fichier(chemin: Path, contenu: str, mode: int = 0o640) -> None:
 # --------------------------------------------------------------------------- #
 #  Echanges avec la console
 # --------------------------------------------------------------------------- #
-def _appel(url: str, cle: str, corps: dict | None = None, timeout: float = 15.0) -> dict:
+def _appel(url, cle, corps=None, timeout=15.0):
+    # type: (str, str, Optional[dict], float) -> dict
     donnees = json.dumps(corps).encode("utf-8") if corps is not None else None
     requete = urllib.request.Request(url, data=donnees, method="POST" if corps is not None else "GET")
     requete.add_header("X-Oscar-Agent-Key", cle)
@@ -180,27 +184,47 @@ def _appel(url: str, cle: str, corps: dict | None = None, timeout: float = 15.0)
         return json.loads(reponse.read().decode("utf-8") or "{}")
 
 
-def recuperer(base: str, robot: str, cle: str) -> dict:
+def recuperer(base, robot, cle):
+    # type: (str, str, str) -> dict
     return _appel(f"{base.rstrip('/')}/studio/runtime/robots/{robot}/bundle", cle)
 
 
-def rendre_compte(base: str, robot: str, cle: str, corps: dict) -> dict:
+def rendre_compte(base, robot, cle, corps):
+    # type: (str, str, str, dict) -> dict
     return _appel(f"{base.rstrip('/')}/studio/runtime/robots/{robot}/bundle/report", cle, corps)
 
 
 # --------------------------------------------------------------------------- #
 #  Application
 # --------------------------------------------------------------------------- #
-def executer(commande: list[str], timeout: float = 300.0) -> tuple[int, str]:
+def executer(commande, timeout=300.0):
+    # type: (List[str], float) -> Tuple[int, str]
     try:
-        resultat = subprocess.run(commande, capture_output=True, text=True, timeout=timeout)
+        resultat = subprocess.run(
+            commande, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=timeout,
+        )
     except (OSError, subprocess.TimeoutExpired) as erreur:
         return 1, str(erreur)
     sortie = (resultat.stdout + resultat.stderr).strip()
     return resultat.returncode, sortie
 
 
-def appliquer(projection: dict[str, str], env_genere: Path, *, redemarrer: bool) -> tuple[bool, str]:
+def runtime_supervise(unite="oscar-edge.service"):
+    # type: (str) -> bool
+    """Le runtime est-il gere par systemd sur cet hote ?
+
+    Une partie du parc tourne encore avec des agents lances a la main, avant le
+    paquet embarque. La reconciliation doit rester utile dans cet etat : elle
+    depose la configuration et le dit, plutot que d'echouer sur une unite
+    inexistante.
+    """
+    code, _ = executer(["systemctl", "cat", unite], timeout=20.0)
+    return code == 0
+
+
+def appliquer(projection, env_genere, redemarrer=True):
+    # type: (Dict[str, str], Path, bool) -> Tuple[bool, str]
     """Ecrit la configuration et redemarre le runtime si elle a change."""
     contenu = rendu_env(projection)
     ancien = env_genere.read_text(encoding="utf-8") if env_genere.exists() else ""
@@ -209,27 +233,32 @@ def appliquer(projection: dict[str, str], env_genere: Path, *, redemarrer: bool)
     ecrire_fichier(env_genere, contenu)
     if not redemarrer:
         return True, "configuration ecrite (redemarrage non demande)"
+    if not runtime_supervise():
+        return True, "configuration ecrite ; runtime non supervise par systemd sur cet hote"
     code, sortie = executer(["systemctl", "restart", "oscar-edge.service"])
     if code != 0:
-        raise RuntimeError(f"redemarrage du runtime impossible : {sortie}")
+        raise RuntimeError("redemarrage du runtime impossible : %s" % (sortie,))
     return True, "runtime redemarre"
 
 
-def verifier_sante(chemin: str = "/usr/local/bin/oscar-healthcheck") -> tuple[bool, str]:
+def verifier_sante(chemin="/usr/local/bin/oscar-healthcheck"):
+    # type: (str) -> Tuple[bool, str]
     if not Path(chemin).exists():
         return True, "diagnostic indisponible"
     code, sortie = executer([chemin, "--quiet"], timeout=120.0)
     return code == 0, sortie or "diagnostic silencieux"
 
 
-def maintenant() -> str:
+def maintenant():
+    # type: () -> str
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 # --------------------------------------------------------------------------- #
 #  Cycle complet
 # --------------------------------------------------------------------------- #
-def reconcilier(options: argparse.Namespace) -> int:
+def reconcilier(options):
+    # type: (argparse.Namespace) -> int
     profil = lire_env(options.config)
     robot = profil.get("OSCAR_ROBOT_ID", "")
     base = options.api_url or profil.get("OSCAR_API_URL", "")
@@ -276,13 +305,17 @@ def reconcilier(options: argparse.Namespace) -> int:
         return 65
 
     try:
-        change, detail = appliquer(projection, options.env_file, redemarrer=not options.no_restart)
+        change, detail = appliquer(projection, options.env_file,
+                                   redemarrer=not options.no_restart)
     except RuntimeError as erreur:
         _rendre_compte_sur(options, base, robot, cle, deploiement, "failed", str(erreur),
                            {"ignores": ignores})
         return 70
 
-    sain, diagnostic = (True, "diagnostic ignore") if options.no_restart else verifier_sante()
+    if options.no_restart or not runtime_supervise():
+        sain, diagnostic = True, "diagnostic ignore (runtime non supervise ici)"
+    else:
+        sain, diagnostic = verifier_sante()
     statut = "active" if sain else "failed"
     message = detail if sain else f"{detail} ; diagnostic en echec : {diagnostic}"
     _rendre_compte_sur(options, base, robot, cle, deploiement, statut, message, {
@@ -295,8 +328,8 @@ def reconcilier(options: argparse.Namespace) -> int:
     return 0 if sain else 75
 
 
-def _rendre_compte_sur(options: argparse.Namespace, base: str, robot: str, cle: str,
-                       deploiement: dict, statut: str, message: str, rapport: dict) -> None:
+def _rendre_compte_sur(options, base, robot, cle, deploiement, statut, message, rapport):
+    # type: (argparse.Namespace, str, str, str, dict, str, str, dict) -> None
     """Rend compte a la console et garde une trace locale du verdict.
 
     La trace locale sert quand la console n'est pas joignable au moment du
@@ -327,7 +360,8 @@ def _rendre_compte_sur(options: argparse.Namespace, base: str, robot: str, cle: 
         logger.warning("compte rendu non transmis (%s) ; il sera rejoue au prochain passage", erreur)
 
 
-def construire_arguments(argv: list[str] | None = None) -> argparse.Namespace:
+def construire_arguments(argv=None):
+    # type: (Optional[List[str]]) -> argparse.Namespace
     analyseur = argparse.ArgumentParser(description="Reconcilie le bundle publie avec ce robot.")
     analyseur.add_argument("--config", type=Path, default=CONFIG_PAR_DEFAUT)
     analyseur.add_argument("--key-file", type=Path, default=CLE_PAR_DEFAUT)
@@ -343,7 +377,8 @@ def construire_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     return analyseur.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv=None):
+    # type: (Optional[List[str]]) -> int
     options = construire_arguments(argv)
     logging.basicConfig(level=options.log_level.upper(),
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
