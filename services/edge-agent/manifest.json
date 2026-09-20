@@ -1,6 +1,6 @@
 {
   "name": "oscar-edge",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "contractVersion": 1,
   "supportedArchitectures": [
     "aarch64",
@@ -28,7 +28,7 @@
     "intervalSeconds": 45
   },
   "bringup": {
-    "source": "profile",
-    "variables": "OSCAR_BRINGUP_*"
+    "source": "composition+profile",
+    "variables": "OSCAR_BRINGUP_<BESOIN>"
   }
 }

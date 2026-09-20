@@ -117,6 +117,50 @@ class ProjectionTest(unittest.TestCase):
         self.assertTrue(any("aucun agent" in motif for motif in refus))
 
 
+class MiseEnRouteTest(unittest.TestCase):
+    """La composition nomme le besoin, le profil fournit la commande."""
+
+    PROFIL_COMPLET = dict(PROFIL, **{
+        "OSCAR_BRINGUP_BASE": "ros2 launch M3Pro_navigation base_bringup.launch.py",
+        "OSCAR_BRINGUP_BASE_DELAY": "8",
+        "OSCAR_BRINGUP_CAMERA": "ros2 launch orbbec_camera dabai_dcw2.launch.py",
+        "OSCAR_BRINGUP_CAMERA_DELAY": "10",
+    })
+
+    @staticmethod
+    def composant(code, besoin, ordre, agents=()):
+        return {"code": code, "cible": "ENVIRONNEMENT_EXECUTION_ROBOT",
+                "mise_en_route": besoin, "ordre": ordre, "agents": list(agents)}
+
+    def test_les_commandes_viennent_du_profil_dans_l_ordre_du_plan(self) -> None:
+        projection, _, refus = MODULE.projeter(charge([
+            self.composant("S_CAMERA", "camera", 20),
+            self.composant("S_BASE", "base", 10),
+            {"code": "S_MEDIA", "cible": "ENVIRONNEMENT_EXECUTION_ROBOT",
+             "agents": [agent("CAM", video=True)]},
+        ]), self.PROFIL_COMPLET)
+        self.assertEqual(refus, [])
+        self.assertEqual(projection["OSCAR_BRINGUP_COUNT"], "2")
+        self.assertIn("base_bringup", projection["OSCAR_BRINGUP_1"])
+        self.assertEqual(projection["OSCAR_BRINGUP_1_DELAY"], "8")
+        self.assertIn("orbbec", projection["OSCAR_BRINGUP_2"])
+        self.assertEqual(projection["OSCAR_ENABLE_MEDIA"], "true")
+
+    def test_un_besoin_absent_du_profil_est_un_refus(self) -> None:
+        """Un chassis sans bras ne doit pas ignorer silencieusement la demande."""
+        _, _, refus = MODULE.projeter(
+            charge([self.composant("S_BRAS", "bras", 30)]), self.PROFIL_COMPLET)
+        self.assertTrue(any("OSCAR_BRINGUP_BRAS" in motif for motif in refus))
+
+    def test_un_composant_de_mise_en_route_seul_suffit(self) -> None:
+        """Un plan peut ne reveiller que le chassis, sans agent OSCAR."""
+        projection, _, refus = MODULE.projeter(
+            charge([self.composant("S_BASE", "base", 10)]), self.PROFIL_COMPLET)
+        self.assertEqual(refus, [])
+        self.assertEqual(projection["OSCAR_ENABLE_MEDIA"], "false")
+        self.assertEqual(projection["OSCAR_BRINGUP_COUNT"], "1")
+
+
 class ApplicationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

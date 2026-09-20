@@ -99,6 +99,7 @@ def projeter(charge, profil):
     media = False
     commande = False
     agents = []  # type: List[str]
+    mises_en_route = []  # type: List[Tuple[int, str, str, str]]
 
     for composant in manifeste.get("composants") or []:
         cible = composant.get("cible") or bundle.get("cible")
@@ -107,6 +108,25 @@ def projeter(charge, profil):
             # serveur : ils se deploient ailleurs, pas sur ce chassis.
             ignores.append(f"{composant.get('code')} ({cible})")
             continue
+        besoin = composant.get("mise_en_route")
+        if besoin:
+            # Le profil du chassis fournit la commande ; la composition ne fait
+            # que nommer le besoin. Un besoin sans commande est un refus, pas un
+            # silence : le robot ne peut pas inventer comment se reveiller.
+            variable = "OSCAR_BRINGUP_%s" % besoin.upper()
+            commande_chassis = profil.get(variable, "")
+            if not commande_chassis:
+                refus.append(
+                    "%s : mise en route « %s » demandee, absente du profil de ce chassis (%s)"
+                    % (composant.get("code"), besoin, variable)
+                )
+            else:
+                mises_en_route.append((
+                    int(composant.get("ordre") or 100),
+                    besoin,
+                    commande_chassis,
+                    profil.get(variable + "_DELAY", "0"),
+                ))
         for agent in composant.get("agents") or []:
             code = agent.get("code") or "agent"
             agents.append(code)
@@ -130,8 +150,8 @@ def projeter(charge, profil):
         refus.append("publication video demandee mais OSCAR_CAMERA_TOPIC absent du profil robot")
     if commande and not profil.get("OSCAR_CMD_VEL_TOPIC"):
         refus.append("reception de commandes demandee mais OSCAR_CMD_VEL_TOPIC absent du profil robot")
-    if not agents and not refus:
-        refus.append("aucun agent a executer sur ce robot dans cette composition")
+    if not agents and not mises_en_route and not refus:
+        refus.append("aucun agent ni mise en route a executer sur ce robot dans cette composition")
 
     projection = {
         "OSCAR_BUNDLE_CODE": str(bundle.get("code") or deploiement.get("bundle") or ""),
@@ -141,6 +161,14 @@ def projeter(charge, profil):
         "OSCAR_ENABLE_MEDIA": "true" if media else "false",
         "OSCAR_ENABLE_COMMAND": "true" if commande else "false",
     }
+    # L'ordre vient de la composition : la base avant la camera, la camera avant
+    # les agents qui s'y abonnent.
+    mises_en_route.sort(key=lambda item: (item[0], item[1]))
+    projection["OSCAR_BRINGUP_COUNT"] = str(len(mises_en_route))
+    for index, (_ordre, besoin, commande_chassis, attente) in enumerate(mises_en_route, start=1):
+        projection["OSCAR_BRINGUP_%d" % index] = commande_chassis
+        projection["OSCAR_BRINGUP_%d_DELAY" % index] = str(attente)
+        projection["OSCAR_BRINGUP_%d_BESOIN" % index] = besoin
     return projection, ignores, refus
 
 
