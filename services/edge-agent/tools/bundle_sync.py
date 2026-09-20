@@ -27,6 +27,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -259,6 +260,24 @@ def verifier_sante(chemin="/usr/local/bin/oscar-healthcheck"):
     return code == 0, sortie or "diagnostic silencieux"
 
 
+def attendre_sante(limite=210.0, intervalle=10.0):
+    # type: (float, float) -> Tuple[bool, str]
+    """Laisse au runtime le temps de demarrer avant de le juger.
+
+    Un conteneur qui vient d'etre relance passe par `starting` : ses agents ne
+    sont pas encore connectes, la camera n'a pas fini son initialisation. Rendre
+    compte a cet instant, c'est declarer en echec un deploiement qui aboutira
+    dix secondes plus tard — et un echec fait sortir le deploiement des etats
+    courants, donc le robot ne le reessaie meme pas.
+    """
+    echeance = time.time() + limite
+    sain, diagnostic = verifier_sante()
+    while not sain and time.time() < echeance:
+        time.sleep(intervalle)
+        sain, diagnostic = verifier_sante()
+    return sain, diagnostic
+
+
 def maintenant():
     # type: () -> str
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -337,7 +356,9 @@ def reconcilier(options):
         sain, diagnostic = True, "configuration preparee uniquement ; execution non confirmee"
         statut = "prepared"
     else:
-        sain, diagnostic = verifier_sante()
+        # Le temps d'attente couvre la periode de demarrage declaree par le
+        # conteneur (90 s) et la mise en route du chassis qui la precede.
+        sain, diagnostic = attendre_sante()
         statut = "active" if sain else "failed"
     message = detail if sain else f"{detail} ; diagnostic en echec : {diagnostic}"
     _rendre_compte_sur(options, base, robot, cle, deploiement, statut, message, {

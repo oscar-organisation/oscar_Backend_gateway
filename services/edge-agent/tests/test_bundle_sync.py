@@ -174,6 +174,37 @@ class RuntimeNonSuperviseTest(unittest.TestCase):
         self.assertTrue(self.env.exists())
 
 
+class AttenteSanteTest(unittest.TestCase):
+    """Un runtime qui demarre n'est pas un runtime en echec."""
+
+    def setUp(self) -> None:
+        self._verifier = MODULE.verifier_sante
+        self._dormir = MODULE.time.sleep
+        MODULE.time.sleep = lambda _: None
+
+    def tearDown(self) -> None:
+        MODULE.verifier_sante = self._verifier
+        MODULE.time.sleep = self._dormir
+
+    def test_la_sante_est_reessayee_avant_de_conclure(self) -> None:
+        tentatives = {"n": 0}
+
+        def sante(chemin="/usr/local/bin/oscar-healthcheck"):
+            tentatives["n"] += 1
+            return (tentatives["n"] >= 3, "sante conteneur: starting")
+
+        MODULE.verifier_sante = sante
+        sain, _ = MODULE.attendre_sante(limite=60.0, intervalle=0.0)
+        self.assertTrue(sain)
+        self.assertEqual(tentatives["n"], 3)
+
+    def test_un_runtime_durablement_malade_reste_un_echec(self) -> None:
+        MODULE.verifier_sante = lambda chemin="x": (False, "conteneur absent")
+        sain, motif = MODULE.attendre_sante(limite=0.0, intervalle=0.0)
+        self.assertFalse(sain)
+        self.assertIn("absent", motif)
+
+
 class EnvTest(unittest.TestCase):
     def test_lecture_dun_profil_avec_commentaires_et_guillemets(self) -> None:
         with tempfile.TemporaryDirectory() as dossier:

@@ -43,10 +43,13 @@ services:
     restart: unless-stopped
     privileged: true
     environment:
+      # Pas de transport force ici : la carte de commande publie par la pile
+      # DDS par defaut, et lui imposer UDPv4 seul la rendait invisible des
+      # abonnes. Le partage de /dev/shm sert cette meme decouverte.
       ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
-      FASTDDS_BUILTIN_TRANSPORTS: ${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}
     volumes:
       - /dev:/dev
+      - /dev/shm:/dev/shm
     command: ${OSCAR_MICROROS_ARGS:-serial --dev /dev/ttyUSB0 -b 2000000}
     logging:
       driver: json-file

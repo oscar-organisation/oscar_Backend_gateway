@@ -1,6 +1,6 @@
 {
   "name": "oscar-edge",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "contractVersion": 1,
   "supportedArchitectures": [
     "aarch64",
