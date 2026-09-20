@@ -19,6 +19,8 @@ class WorkerConfig:
     livekit_token: str | None
     model_cache: Path
     manifest_refresh_seconds: int = 10
+    exclusion_zones: str = ""
+    exclusion_overlap: float = 0.6
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -30,4 +32,6 @@ class WorkerConfig:
             livekit_token=os.getenv("OSCAR_LIVEKIT_TOKEN", "").strip() or None,
             model_cache=Path(os.getenv("OSCAR_MODEL_CACHE", "/var/lib/oscar/models")),
             manifest_refresh_seconds=max(3, int(os.getenv("OSCAR_MANIFEST_REFRESH_SECONDS", "10"))),
+            exclusion_zones=os.getenv("OSCAR_EXCLUSION_ZONES", ""),
+            exclusion_overlap=min(1.0, max(0.05, float(os.getenv("OSCAR_EXCLUSION_OVERLAP", "0.6")))),
         )

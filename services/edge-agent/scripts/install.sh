@@ -47,20 +47,34 @@ if [[ ! -f "$config_dir/robot.env" ]]; then
   echo "Configuration initiale creee: $config_dir/robot.env"
 fi
 
+# Configuration issue du bundle : vide tant que rien n'a ete publie, mais
+# presente, car compose refuse de demarrer sur un env_file manquant.
+if [[ ! -f "$config_dir/bundle.env" ]]; then
+  printf '# Rempli par oscar-bundle-sync des la premiere reconciliation.\n' \
+    > "$config_dir/bundle.env"
+  chmod 0640 "$config_dir/bundle.env"
+fi
+
 ln -sfn "$release_dir" /opt/oscar/current
 install -m 0755 "$bundle_dir/scripts/oscarctl" /usr/local/bin/oscarctl
 install -m 0755 "$bundle_dir/scripts/preflight.sh" /usr/local/libexec/oscar-preflight
 install -m 0755 "$bundle_dir/scripts/healthcheck.sh" /usr/local/bin/oscar-healthcheck
 install -m 0755 "$bundle_dir/scripts/network-recovery.sh" /usr/local/libexec/oscar-network-recovery
+install -m 0755 "$bundle_dir/tools/bundle_sync.py" /usr/local/libexec/oscar-bundle-sync
 install -m 0644 "$bundle_dir/systemd/oscar-edge.service" /etc/systemd/system/oscar-edge.service
+install -m 0644 "$bundle_dir/systemd/oscar-edge-bridge.service" /etc/systemd/system/oscar-edge-bridge.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-health.service" /etc/systemd/system/oscar-edge-health.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-health.timer" /etc/systemd/system/oscar-edge-health.timer
 install -m 0644 "$bundle_dir/systemd/oscar-edge-network.service" /etc/systemd/system/oscar-edge-network.service
 install -m 0644 "$bundle_dir/systemd/oscar-edge-network.timer" /etc/systemd/system/oscar-edge-network.timer
+install -m 0644 "$bundle_dir/systemd/oscar-edge-sync.service" /etc/systemd/system/oscar-edge-sync.service
+install -m 0644 "$bundle_dir/systemd/oscar-edge-sync.timer" /etc/systemd/system/oscar-edge-sync.timer
 systemctl daemon-reload
 
 echo "OSCAR Edge $version installe dans $release_dir"
 echo "Renseigner /etc/oscar/robot.env et /etc/oscar/credentials/*.json."
+echo "Pour recevoir les bundles publies: OSCAR_API_URL dans robot.env et la cle"
+echo "d'agent dans /etc/oscar/credentials/agent.key (chmod 600)."
 
 if [[ "$activate" == true ]]; then
   /usr/local/bin/oscarctl activate

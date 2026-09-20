@@ -1,6 +1,10 @@
 services:
   perception-worker:
-    build: .
+    build:
+      context: .
+      args:
+        # Hote sans GPU : roues CPU. Vider cet argument sur une cible Jetson.
+        TORCH_INDEX_URL: ${OSCAR_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
     image: oscar/perception-worker:local
     restart: unless-stopped
     read_only: true
@@ -14,6 +18,17 @@ services:
       - perception-models:/var/lib/oscar/models
     tmpfs:
       - /tmp:size=256m,mode=1777
+    networks:
+      # Le média WebRTC doit joindre le SFU directement. Passer par le nom
+      # public depuis le même hôte laisse la signalisation réussir et
+      # l'abonnement aux pistes échouer en silence.
+      - default
+      - sfu
 
 volumes:
   perception-models:
+
+networks:
+  sfu:
+    external: true
+    name: ${OSCAR_SFU_NETWORK:-proxy-network}

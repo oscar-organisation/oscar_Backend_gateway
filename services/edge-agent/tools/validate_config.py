@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Validate an OSCAR Edge configuration without exposing credentials."""
 
-from __future__ import annotations
 
 import argparse
 import base64
@@ -10,13 +9,15 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 
 ROBOT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 
 
-def read_env(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
+def read_env(path):
+    # type: (Path) -> Dict[str, str]
+    values = {}  # type: Dict[str, str]
     for line_number, raw in enumerate(path.read_text().splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -30,7 +31,8 @@ def read_env(path: Path) -> dict[str, str]:
     return values
 
 
-def decode_jwt_claims(token: str) -> dict:
+def decode_jwt_claims(token):
+    # type: (str) -> dict
     parts = token.split(".")
     if len(parts) != 3:
         raise ValueError("JWT mal forme")
@@ -41,7 +43,8 @@ def decode_jwt_claims(token: str) -> dict:
         raise ValueError("payload JWT illisible") from exc
 
 
-def read_token_file(path: Path) -> tuple[dict, dict]:
+def read_token_file(path):
+    # type: (Path) -> Tuple[dict, dict]
     data = json.loads(path.read_text())
     livekit = data.get("livekit")
     if not isinstance(livekit, dict):
@@ -52,13 +55,9 @@ def read_token_file(path: Path) -> tuple[dict, dict]:
     return livekit, decode_jwt_claims(str(livekit["token"]))
 
 
-def validate(
-    env_path: Path,
-    media_path: Path,
-    command_path: Path,
-    now: int | None = None,
-) -> list[str]:
-    errors: list[str] = []
+def validate(env_path, media_path, command_path, now=None):
+    # type: (Path, Path, Path, Optional[int]) -> List[str]
+    errors = []  # type: List[str]
     now = now or int(time.time())
 
     try:
@@ -87,7 +86,7 @@ def validate(
         except ValueError:
             errors.append(f"{key} doit etre compris entre {minimum} et {maximum}")
 
-    credentials: dict[str, tuple[dict, dict]] = {}
+    credentials = {}  # type: Dict[str, Tuple[dict, dict]]
     for role, path in (("media", media_path), ("command", command_path)):
         try:
             credentials[role] = read_token_file(path)
@@ -122,7 +121,8 @@ def validate(
     return errors
 
 
-def main() -> int:
+def main():
+    # type: () -> int
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", type=Path, required=True)
     parser.add_argument("--media-token", type=Path, required=True)

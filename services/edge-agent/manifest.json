@@ -1,10 +1,18 @@
 {
   "name": "oscar-edge",
-  "version": "0.1.0",
+  "version": "0.4.1",
   "contractVersion": 1,
-  "supportedArchitectures": ["aarch64", "x86_64"],
-  "supportedRosDistributions": ["humble"],
-  "agents": ["media", "command"],
+  "supportedArchitectures": [
+    "aarch64",
+    "x86_64"
+  ],
+  "supportedRosDistributions": [
+    "humble"
+  ],
+  "agents": [
+    "media",
+    "command"
+  ],
   "livekit": {
     "inputTopic": "oscar.xr.input",
     "commandEchoTopic": "oscar.robot.command",
@@ -14,5 +22,13 @@
     "deadmanRequired": true,
     "watchdogMs": 300,
     "motionOnBoot": false
+  },
+  "bundleSync": {
+    "format": "oscar.bundle.runtime.v1",
+    "intervalSeconds": 45
+  },
+  "bringup": {
+    "source": "composition+profile",
+    "variables": "OSCAR_BRINGUP_<BESOIN>"
   }
 }

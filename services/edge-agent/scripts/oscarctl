@@ -16,6 +16,8 @@ Usage: oscarctl COMMAND
   restart    Redemarrer proprement le runtime
   status     Afficher l'etat systemd et conteneur
   doctor     Executer le prevol puis le diagnostic ROS/runtime
+  sync       Reconcilier maintenant avec le bundle publie
+  bundle     Afficher le bundle applique sur ce robot
   logs       Suivre les journaux des agents
   releases   Lister les releases installees
   rollback   Revenir a une release deja installee
@@ -30,7 +32,14 @@ case "${1:-}" in
   activate)
     /usr/local/libexec/oscar-preflight
     "${compose[@]}" build
-    systemctl enable --now oscar-edge.service oscar-edge-health.timer oscar-edge-network.timer
+    systemctl enable --now oscar-edge-bridge.service oscar-edge.service oscar-edge-health.timer oscar-edge-network.timer
+    # La reconciliation n'est activee que si le robot sait a qui parler : sans
+    # OSCAR_API_URL, la minuterie echouerait a chaque passage pour rien.
+    if grep -qs '^OSCAR_API_URL=.\+' "$config"; then
+      systemctl enable --now oscar-edge-sync.timer
+    else
+      echo "OSCAR_API_URL absent de $config : reconciliation des bundles non activee."
+    fi
     ;;
   start)
     systemctl start oscar-edge.service
@@ -51,6 +60,18 @@ case "${1:-}" in
     ;;
   logs)
     exec "${compose[@]}" logs --follow --tail 200 edge
+    ;;
+  sync)
+    shift
+    exec /usr/local/libexec/oscar-bundle-sync "$@"
+    ;;
+  bundle)
+    applied="/var/lib/oscar/bundle-applied.json"
+    if [[ -f "$applied" ]]; then
+      cat "$applied"
+    else
+      echo "Aucun bundle applique sur ce robot."
+    fi
     ;;
   releases)
     current="$(readlink -f /opt/oscar/current 2>/dev/null || true)"

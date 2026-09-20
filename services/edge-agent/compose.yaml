@@ -12,12 +12,47 @@ services:
     ipc: host
     restart: unless-stopped
     env_file:
+      # Profil materiel du chassis, puis configuration issue du bundle publie.
+      # L'ordre compte : le bundle decide de ce qui tourne, le profil de la
+      # maniere dont cela se branche.
       - /etc/oscar/robot.env
+      - /etc/oscar/bundle.env
     volumes:
       - /etc/oscar/credentials:/run/secrets/oscar:ro
+      # Camera et peripheriques USB du chassis : le runtime met lui-meme les
+      # pilotes en route sur un robot sorti de carton.
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules:
+      - "c 189:* rmw"
     stop_grace_period: 5s
     logging:
       driver: json-file
       options:
         max-size: 20m
         max-file: "3"
+
+  # Pont micro-ROS vers la carte de commande du chassis. Service a part : il
+  # tourne avec l'image du constructeur et a besoin des peripheriques bruts,
+  # ce qu'on ne donne pas au runtime OSCAR. Active par le profil, via
+  # COMPOSE_PROFILES=microros.
+  microros:
+    image: ${OSCAR_MICROROS_IMAGE:-oscar/microros:absent}
+    container_name: oscar-microros
+    profiles: ["microros"]
+    network_mode: host
+    restart: unless-stopped
+    privileged: true
+    environment:
+      # Pas de transport force ici : la carte de commande publie par la pile
+      # DDS par defaut, et lui imposer UDPv4 seul la rendait invisible des
+      # abonnes. Le partage de /dev/shm sert cette meme decouverte.
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    volumes:
+      - /dev:/dev
+      - /dev/shm:/dev/shm
+    command: ${OSCAR_MICROROS_ARGS:-serial --dev /dev/ttyUSB0 -b 2000000}
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"
