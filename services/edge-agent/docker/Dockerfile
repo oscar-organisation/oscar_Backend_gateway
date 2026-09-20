@@ -15,9 +15,11 @@ RUN python3 -m pip install --no-cache-dir -r /opt/oscar/requirements.txt
 
 COPY runtime/ /opt/oscar/runtime/
 COPY docker/entrypoint.sh /usr/local/bin/oscar-edge-entrypoint
-RUN chmod 0755 /usr/local/bin/oscar-edge-entrypoint
+COPY docker/healthcheck-container.sh /usr/local/bin/oscar-edge-healthcheck
+RUN chmod 0755 /usr/local/bin/oscar-edge-entrypoint /usr/local/bin/oscar-edge-healthcheck
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-  CMD pgrep -f '[o]scar_robot_media.py' >/dev/null && pgrep -f '[c]ommand_agent.py' >/dev/null
+# La sante suit ce que le bundle a active, agents comme mise en route.
+HEALTHCHECK --interval=15s --timeout=10s --start-period=90s --retries=3 \
+  CMD /usr/local/bin/oscar-edge-healthcheck
 
 ENTRYPOINT ["/usr/local/bin/oscar-edge-entrypoint"]
