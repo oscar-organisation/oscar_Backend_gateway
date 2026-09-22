@@ -43,10 +43,25 @@ printf 'Mot de passe du compte %s: ' "$compte" >&2
 read -r -s motdepasse
 printf '\n' >&2
 
-if ! printf '%s' "$motdepasse" | docker login "$registry" --username "$compte" --password-stdin; then
+# HOME est force a /root, et ce n'est pas un detail : sudo conserve le HOME
+# de l'appelant sur cet hote, si bien que les identifiants atterrissaient dans
+# /home/jetson/.docker/. Les minuteries systemd, elles, tournent avec
+# HOME=/root : le tirage automatique echouait alors en "unauthorized" sans
+# qu'aucun test manuel ne le montre.
+install -d -m 0700 /root/.docker
+if ! printf '%s' "$motdepasse" \
+  | HOME=/root docker login "$registry" --username "$compte" --password-stdin; then
   echo "Connexion au registre refusee." >&2
   exit 1
 fi
 unset motdepasse
+chmod 0600 /root/.docker/config.json
+
+# Verification dans les conditions d'une minuterie : environnement vide, root.
+if ! env -i PATH=/usr/bin:/bin HOME=/root docker pull "$registry/oscar/edge:sonde-inexistante" 2>&1 \
+  | grep -q "manifest unknown"; then
+  echo "Les identifiants ne sont pas lisibles dans les conditions de systemd." >&2
+  exit 1
+fi
 
 echo "Robot raccorde au registre $registry en lecture."
