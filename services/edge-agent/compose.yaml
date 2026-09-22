@@ -1,12 +1,9 @@
 services:
   edge:
-    image: oscar/edge:${OSCAR_EDGE_VERSION:-latest}
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-      args:
-        ROBOT_BASE_IMAGE: ${ROBOT_BASE_IMAGE:?ROBOT_BASE_IMAGE must be configured}
-        OSCAR_EDGE_VERSION: ${OSCAR_EDGE_VERSION:-dev}
+    # L'image vient du registre, jamais d'une construction locale. La reference
+    # est posee par le paquet dans /etc/oscar/release.env : c'est la release qui
+    # sait quelle image lui correspond, pas l'operateur.
+    image: ${OSCAR_EDGE_IMAGE:?OSCAR_EDGE_IMAGE absent - paquet installe ?}
     container_name: oscar-edge
     network_mode: host
     ipc: host

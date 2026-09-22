@@ -55,6 +55,16 @@ if [[ ! -f "$config_dir/bundle.env" ]]; then
   chmod 0640 "$config_dir/bundle.env"
 fi
 
+# Identite de l'image, posee par le paquet a chaque installation.
+#
+# Cette valeur vivait dans robot.env, ou l'operateur la maintenait a la main.
+# Elle y restait figee quand une nouvelle version arrivait, et le robot
+# relancait alors l'ancienne image avec les nouveaux outils d'hote : les
+# modules du runtime ne changeaient jamais. Le paquet connait sa propre
+# version ; c'est donc lui qui l'ecrit.
+install -m 0755 "$bundle_dir/scripts/write-release-env.sh" /usr/local/libexec/oscar-release-env
+/usr/local/libexec/oscar-release-env "$release_dir"
+
 ln -sfn "$release_dir" /opt/oscar/current
 install -m 0755 "$bundle_dir/scripts/oscarctl" /usr/local/bin/oscarctl
 install -m 0755 "$bundle_dir/scripts/preflight.sh" /usr/local/libexec/oscar-preflight

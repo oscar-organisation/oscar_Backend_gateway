@@ -19,8 +19,25 @@ if [[ -r "$config" ]]; then
   source "$config"
   set +a
   [[ -n "${OSCAR_ROBOT_ID:-}" ]] && ok "robot: $OSCAR_ROBOT_ID" || fail "OSCAR_ROBOT_ID absent"
-  [[ -n "${ROBOT_BASE_IMAGE:-}" && "${ROBOT_BASE_IMAGE:-}" != CHANGE_ME* ]] \
-    && ok "image ROS constructeur configuree" || fail "ROBOT_BASE_IMAGE non configuree"
+  [[ -n "${OSCAR_REGISTRY:-}" ]] \
+    && ok "registre d'images: $OSCAR_REGISTRY" || fail "OSCAR_REGISTRY non configure"
+fi
+
+# L'image que la release attend doit etre sur le disque avant que compose ne
+# tente de la demarrer. Le prevol garde ce role de derniere barriere : il
+# tourne aussi apres un retour arriere, ou l'image attendue change.
+release_env="${OSCAR_RELEASE_FILE:-/etc/oscar/release.env}"
+if [[ -r "$release_env" ]]; then
+  image="$(sed -n 's/^OSCAR_EDGE_IMAGE=//p' "$release_env" | tail -1)"
+  if [[ -z "$image" ]]; then
+    fail "OSCAR_EDGE_IMAGE absent de $release_env"
+  elif docker image inspect "$image" >/dev/null 2>&1; then
+    ok "image du runtime presente: $image"
+  else
+    fail "image du runtime absente: $image (oscarctl pull)"
+  fi
+else
+  fail "reference d'image absente: $release_env (reinstaller le paquet)"
 fi
 
 # Reconciliation des bundles : optionnelle, mais si elle est configuree a

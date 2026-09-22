@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 CONFIG_PAR_DEFAUT = Path("/etc/oscar/robot.env")
+RELEASE_ENV_PAR_DEFAUT = Path("/etc/oscar/release.env")
 CLE_PAR_DEFAUT = Path("/etc/oscar/credentials/agent.key")
 RACINE_PAR_DEFAUT = Path("/opt/oscar")
 
@@ -133,8 +134,60 @@ def installer(dossier_release, timeout=900.0):
     return executer(["bash", str(dossier_release / "scripts" / "install.sh")], timeout=timeout)
 
 
-def basculer(racine, version):
-    # type: (Path, str) -> None
+def reference_image(racine, version, config):
+    # type: (Path, str, Path) -> str
+    """Image attendue par une release installee.
+
+    Le depot est nomme par la release elle-meme, l'hote du registre par le
+    profil du robot : le meme paquet peut ainsi viser un registre de
+    preproduction sans etre reconstruit.
+    """
+    registre = lire_env(config).get("OSCAR_REGISTRY", "").strip()
+    if not registre:
+        return ""
+    fichier = racine / "releases" / version / "IMAGE"
+    try:
+        depot = fichier.read_text(encoding="utf-8").strip()
+    except OSError:
+        depot = "oscar/edge"
+    return "%s/%s:%s" % (registre, depot or "oscar/edge", version)
+
+
+def poser_release_env(racine, version, config, chemin=None):
+    # type: (Path, str, Path, Optional[Path]) -> None
+    """Ecrit la reference d'image correspondant a la release en service.
+
+    Appele a chaque bascule, retour arriere compris : le fichier decrit
+    toujours ce vers quoi pointe /opt/oscar/current, jamais autre chose.
+    """
+    chemin = chemin or RELEASE_ENV_PAR_DEFAUT
+    image = reference_image(racine, version, config)
+    if not image:
+        return
+    contenu = (
+        "# Ecrit par oscar-release-sync a chaque bascule. Ne pas editer :\n"
+        "# toute modification est perdue a la prochaine montee de version.\n"
+        "OSCAR_EDGE_VERSION=%s\n"
+        "OSCAR_EDGE_IMAGE=%s\n" % (version, image)
+    )
+    chemin.write_text(contenu, encoding="utf-8")
+
+
+def tirer_image(image, timeout=1800.0):
+    # type: (str, float) -> Tuple[int, str]
+    """Tire l'image depuis le registre, sauf si elle est deja sur le disque.
+
+    Une image absente du registre condamne la release : mieux vaut le savoir
+    avant de deplacer le lien que devant un conteneur qui ne demarre pas.
+    """
+    code, _ = executer(["docker", "image", "inspect", image], timeout=60.0)
+    if code == 0:
+        return 0, "image deja presente"
+    return executer(["docker", "pull", image], timeout=timeout)
+
+
+def basculer(racine, version, config=None, release_env=None):
+    # type: (Path, str, Optional[Path], Optional[Path]) -> None
     cible = racine / "releases" / version
     lien = racine / "current"
     temporaire = racine / "current.nouveau"
@@ -142,6 +195,8 @@ def basculer(racine, version):
         temporaire.unlink()
     temporaire.symlink_to(cible)
     temporaire.replace(lien)
+    if config is not None:
+        poser_release_env(racine, version, config, release_env)
 
 
 def reconcilier(options):
@@ -196,16 +251,36 @@ def reconcilier(options):
         code, sortie = installer(dossier_release)
         if code != 0:
             motif = "installation refusee : %s" % sortie[-300:]
+            # install.sh a deja pose release.env sur la version qu'il installait ;
+            # comme on ne bascule pas, on le ramene sur celle qui tourne.
+            if installee:
+                poser_release_env(options.root, installee, options.config, options.release_env)
             logger.error(motif)
             _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
             return 70
 
-        basculer(options.root, version)
+        # L'image se tire avant la bascule. Un registre injoignable ou une
+        # version jamais poussee laisse alors le robot exactement ou il etait,
+        # au lieu de le laisser devant un conteneur qui ne demarrera pas.
+        image = reference_image(options.root, version, options.config)
+        if not image:
+            code, sortie = 78, "OSCAR_REGISTRY absent de %s" % options.config
+        else:
+            code, sortie = tirer_image(image)
+        if code != 0:
+            motif = "image %s indisponible : %s" % (image or "?", sortie[-200:])
+            if installee:
+                poser_release_env(options.root, installee, options.config, options.release_env)
+            logger.error(motif)
+            _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
+            return 69
+
+        basculer(options.root, version, options.config, options.release_env)
         code, sortie = executer(["/usr/local/libexec/oscar-preflight"], timeout=300.0)
         if code != 0 and installee:
             # Retour arriere : la version precedente est encore sur le disque,
             # c'est tout l'interet de ne jamais ecraser une release.
-            basculer(options.root, installee)
+            basculer(options.root, installee, options.config, options.release_env)
             executer(["systemctl", "restart", "oscar-edge.service"])
             motif = "prevol en echec sur %s, retour a %s" % (version, installee)
             logger.error(motif)
@@ -244,6 +319,7 @@ def construire_arguments(argv=None):
     analyseur.add_argument("--config", type=Path, default=CONFIG_PAR_DEFAUT)
     analyseur.add_argument("--key-file", type=Path, default=CLE_PAR_DEFAUT)
     analyseur.add_argument("--root", type=Path, default=RACINE_PAR_DEFAUT)
+    analyseur.add_argument("--release-env", type=Path, default=RELEASE_ENV_PAR_DEFAUT)
     analyseur.add_argument("--api-url", default="")
     analyseur.add_argument("--no-restart", action="store_true")
     analyseur.add_argument("--log-level", default="INFO")

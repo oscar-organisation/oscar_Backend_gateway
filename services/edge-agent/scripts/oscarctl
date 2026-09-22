@@ -3,14 +3,17 @@ set -Eeuo pipefail
 
 home="${OSCAR_HOME:-/opt/oscar/current}"
 config="${OSCAR_CONFIG_FILE:-/etc/oscar/robot.env}"
-compose=(docker compose --env-file "$config" -f "$home/compose.yaml")
+release="${OSCAR_RELEASE_FILE:-/etc/oscar/release.env}"
+compose=(docker compose --env-file "$config" --env-file "$release" -f "$home/compose.yaml")
+compose_build=(docker compose --env-file "$config" --env-file "$release" -f "$home/compose.build.yaml")
 
 usage() {
   cat <<'EOF'
 Usage: oscarctl COMMAND
 
   preflight  Valider l'hote, la configuration et les credentials
-  activate   Construire, activer au demarrage et lancer OSCAR Edge
+  activate   Tirer l'image, activer au demarrage et lancer OSCAR Edge
+  pull       Tirer l'image de la release installee depuis le registre
   start      Lancer le runtime
   stop       Arreter le runtime et publier un arret via l'agent
   restart    Redemarrer proprement le runtime
@@ -23,6 +26,10 @@ Usage: oscarctl COMMAND
   releases   Lister les releases installees
   rollback   Revenir a une release deja installee
   version    Afficher la version installee
+  image      Afficher l'image attendue et son empreinte locale
+
+Robot de reference uniquement :
+  build-image [--local]  Construire l'image de cette release et la pousser
 EOF
 }
 
@@ -31,8 +38,13 @@ case "${1:-}" in
     exec /usr/local/libexec/oscar-preflight
     ;;
   activate)
+    # La reference est recalculee ici : sur une premiere installation,
+    # l'operateur a renseigne le registre dans robot.env apres install.sh.
+    /usr/local/libexec/oscar-release-env "$home"
+    # Le tirage precede le prevol : celui-ci verifie desormais que l'image
+    # attendue est bien sur le disque, ce qu'elle n'est pas avant.
+    "$0" pull
     /usr/local/libexec/oscar-preflight
-    "${compose[@]}" build
     systemctl enable --now oscar-edge-bridge.service oscar-edge.service oscar-edge-health.timer oscar-edge-network.timer
     # La reconciliation n'est activee que si le robot sait a qui parler : sans
     # OSCAR_API_URL, la minuterie echouerait a chaque passage pour rien.
@@ -41,6 +53,50 @@ case "${1:-}" in
     else
       echo "OSCAR_API_URL absent de $config : reconciliation des bundles non activee."
     fi
+    ;;
+  pull)
+    # L'image est deja la sur un robot qui n'a pas change de version : on ne
+    # retelecharge rien pour rien, et surtout on ne depend pas du reseau pour
+    # un simple redemarrage.
+    image="$(grep -s '^OSCAR_EDGE_IMAGE=' "$release" | tail -1 | cut -d= -f2-)"
+    if [[ -z "$image" ]]; then
+      echo "OSCAR_EDGE_IMAGE absent de $release : paquet installe ?" >&2
+      exit 1
+    fi
+    if docker image inspect "$image" >/dev/null 2>&1; then
+      echo "Image deja presente: $image"
+    else
+      echo "Tirage de $image"
+      docker pull "$image"
+    fi
+    ;;
+  image)
+    image="$(grep -s '^OSCAR_EDGE_IMAGE=' "$release" | tail -1 | cut -d= -f2-)"
+    printf 'attendue : %s\n' "${image:-<absente>}"
+    if [[ -n "$image" ]] && docker image inspect "$image" >/dev/null 2>&1; then
+      printf 'locale   : %s\n' \
+        "$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null \
+           || docker image inspect --format '{{.Id}}' "$image")"
+    else
+      printf 'locale   : absente\n'
+    fi
+    ;;
+  build-image)
+    # Reserve au robot de reference : celui qui porte l'image constructeur et
+    # les identifiants d'ecriture du registre. Les autres tirent le resultat.
+    image="$(grep -s '^OSCAR_EDGE_IMAGE=' "$release" | tail -1 | cut -d= -f2-)"
+    if [[ -z "$image" ]]; then
+      echo "OSCAR_EDGE_IMAGE absent de $release : paquet installe ?" >&2
+      exit 1
+    fi
+    "${compose_build[@]}" build edge
+    if [[ "${2:-}" == "--local" ]]; then
+      echo "Image construite sans etre poussee: $image"
+      exit 0
+    fi
+    docker push "$image"
+    printf 'Image poussee: %s\n' \
+      "$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")"
     ;;
   start)
     systemctl start oscar-edge.service

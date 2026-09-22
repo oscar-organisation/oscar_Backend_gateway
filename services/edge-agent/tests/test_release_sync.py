@@ -106,21 +106,24 @@ class BasculeTest(unittest.TestCase):
         self.assertTrue((self.racine / "releases" / "1.0.0" / "VERSION").exists())
 
 
-class CycleTest(unittest.TestCase):
-    """Cycle complet avec une console simulée."""
+class CycleFixture(unittest.TestCase):
+    """Console simulée, release 1.0.0 en service et 1.1.0 proposée."""
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         racine = Path(self.temp.name)
         self.config = racine / "robot.env"
         self.config.write_text(
-            "OSCAR_ROBOT_ID=oscar-02\nOSCAR_API_URL=https://console.test/api\n", encoding="utf-8")
+            "OSCAR_ROBOT_ID=oscar-02\nOSCAR_API_URL=https://console.test/api\n"
+            "OSCAR_REGISTRY=registre.test:5000\n", encoding="utf-8")
+        self.release_env = racine / "release.env"
         self.cle_fichier = racine / "agent.key"
         self.cle_fichier.write_text("cle-de-test\n", encoding="utf-8")
         self.root = racine / "opt"
         (self.root / "releases" / "1.0.0").mkdir(parents=True)
         (self.root / "releases" / "1.0.0" / "VERSION").write_text("1.0.0", encoding="utf-8")
-        MODULE.basculer(self.root, "1.0.0")
+        (self.root / "releases" / "1.0.0" / "IMAGE").write_text("oscar/edge", encoding="utf-8")
+        MODULE.basculer(self.root, "1.0.0", self.config, self.release_env)
 
         self.archive_source = racine / "source.tar.gz"
         archive_valide(self.archive_source, "1.1.0")
@@ -148,15 +151,28 @@ class CycleTest(unittest.TestCase):
             self.archive_source.read_bytes())
         MODULE.installer = lambda dossier, timeout=900.0: (
             self.installations.append(dossier) or self._preparer(dossier) or (0, ""))
-        MODULE.executer = lambda commande, timeout=600.0: (
-            self.commandes.append(commande) or (self.code_prevol, "sortie"))
+        def executer(commande, timeout=600.0):
+            """Distingue ce que la reconciliation lance vraiment.
+
+            Le tirage d'image et le prevol echouent pour des raisons
+            differentes et a des moments differents : un bouchon qui renvoie
+            le meme code aux deux masque celui qu'on veut observer.
+            """
+            self.commandes.append(commande)
+            if commande[:1] == ["docker"]:
+                return self.code_tirage, "sortie docker"
+            return self.code_prevol, "sortie"
+
+        MODULE.executer = executer
         self.code_prevol = 0
+        self.code_tirage = 0
 
     def _preparer(self, dossier: Path) -> None:
         """Simule ce que fait install.sh : poser la release sous son numero."""
         cible = self.root / "releases" / "1.1.0"
         cible.mkdir(parents=True, exist_ok=True)
         (cible / "VERSION").write_text("1.1.0", encoding="utf-8")
+        (cible / "IMAGE").write_text("oscar/edge", encoding="utf-8")
 
     def tearDown(self) -> None:
         MODULE._appel = self._appel
@@ -169,7 +185,12 @@ class CycleTest(unittest.TestCase):
         return MODULE.construire_arguments([
             "--config", str(self.config), "--key-file", str(self.cle_fichier),
             "--root", str(self.root), "--no-restart",
+            "--release-env", str(self.release_env),
         ])
+
+
+class CycleTest(CycleFixture):
+    """Cycle complet : verification, installation, retour arriere."""
 
     def test_une_version_valide_sinstalle_et_est_declaree(self) -> None:
         self.assertEqual(MODULE.reconcilier(self._options()), 0)
@@ -218,3 +239,75 @@ class CycleTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReferenceImageTest(unittest.TestCase):
+    """Composition de la reference d'image a partir du profil et de la release."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.racine = Path(self.temp.name)
+        self.config = self.racine / "robot.env"
+        self.config.write_text("OSCAR_REGISTRY=registre.test:5000\n", encoding="utf-8")
+        (self.racine / "releases" / "2.0.0").mkdir(parents=True)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_le_depot_vient_de_la_release_et_l_hote_du_profil(self) -> None:
+        """Le meme paquet peut viser un autre registre sans etre reconstruit."""
+        (self.racine / "releases" / "2.0.0" / "IMAGE").write_text("oscar/edge", encoding="utf-8")
+        self.assertEqual(
+            MODULE.reference_image(self.racine, "2.0.0", self.config),
+            "registre.test:5000/oscar/edge:2.0.0")
+
+    def test_une_release_sans_fichier_image_garde_le_depot_par_defaut(self) -> None:
+        self.assertEqual(
+            MODULE.reference_image(self.racine, "2.0.0", self.config),
+            "registre.test:5000/oscar/edge:2.0.0")
+
+    def test_sans_registre_configure_aucune_reference_n_est_produite(self) -> None:
+        self.config.write_text("OSCAR_ROBOT_ID=oscar-02\n", encoding="utf-8")
+        self.assertEqual(MODULE.reference_image(self.racine, "2.0.0", self.config), "")
+
+
+class TirageTest(CycleFixture):
+    """Ce que devient une release dont l'image ne se tire pas."""
+
+    def test_une_image_absente_du_registre_laisse_le_robot_ou_il_est(self) -> None:
+        self.code_tirage = 1
+        code = MODULE.reconcilier(self._options())
+        self.assertEqual(code, 69)
+        self.assertEqual(MODULE.version_installee(self.root), "1.0.0")
+        self.assertEqual(self.comptes_rendus[-1]["statut"], "failed")
+
+    def test_le_fichier_release_reste_sur_la_version_qui_tourne(self) -> None:
+        """install.sh a deja ecrit la nouvelle reference : elle doit revenir."""
+        self.code_tirage = 1
+        MODULE.reconcilier(self._options())
+        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge:1.0.0",
+                      self.release_env.read_text(encoding="utf-8"))
+
+    def test_la_reference_d_image_suit_la_bascule(self) -> None:
+        MODULE.reconcilier(self._options())
+        contenu = self.release_env.read_text(encoding="utf-8")
+        self.assertIn("OSCAR_EDGE_VERSION=1.1.0", contenu)
+        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge:1.1.0", contenu)
+
+    def test_un_retour_arriere_restaure_aussi_la_reference_d_image(self) -> None:
+        self.code_prevol = 1
+        MODULE.reconcilier(self._options())
+        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge:1.0.0",
+                      self.release_env.read_text(encoding="utf-8"))
+
+    def test_une_image_deja_presente_n_est_pas_retelechargee(self) -> None:
+        """Un robot qui a deja son image ne doit pas dependre du reseau."""
+        MODULE.reconcilier(self._options())
+        tirages = [c for c in self.commandes if c[:2] == ["docker", "pull"]]
+        self.assertEqual(tirages, [])
+
+    def test_un_registre_non_configure_refuse_la_release(self) -> None:
+        self.config.write_text(
+            "OSCAR_ROBOT_ID=oscar-02\nOSCAR_API_URL=https://console.test/api\n", encoding="utf-8")
+        self.assertEqual(MODULE.reconcilier(self._options()), 69)
+        self.assertEqual(MODULE.version_installee(self.root), "1.0.0")

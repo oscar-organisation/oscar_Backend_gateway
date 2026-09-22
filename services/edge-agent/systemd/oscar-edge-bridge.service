@@ -11,8 +11,8 @@ WorkingDirectory=/opt/oscar/current
 # Les ponts vers les peripheriques vivent hors du cycle des bundles. La carte de
 # commande ne retablit pas sa session quand son agent redemarre : un changement
 # de composition ne doit donc jamais la toucher, seulement le runtime.
-ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env -f /opt/oscar/current/compose.yaml --profile microros up --detach microros
-ExecStop=/usr/bin/docker compose --env-file /etc/oscar/robot.env -f /opt/oscar/current/compose.yaml stop --timeout 5 microros
+ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml --profile microros up --detach microros
+ExecStop=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml stop --timeout 5 microros
 TimeoutStartSec=180
 
 [Install]

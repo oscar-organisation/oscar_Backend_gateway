@@ -1,0 +1,24 @@
+# Fabrication de l'image OSCAR Edge.
+#
+# Ce fichier ne sert qu'au robot de reference, celui qui porte l'image
+# constructeur et les identifiants d'ecriture du registre. Les robots de la
+# flotte ne construisent rien : ils tirent l'image finie.
+#
+# On construit sur un robot et non sur le serveur pour une raison materielle :
+# l'image de base du constructeur ne vit que sur le chassis, et elle fait
+# 8,68 Go. La croiser depuis un VPS x86 demanderait l'emulation et une copie
+# de cette base que personne ne peut nous fournir aujourd'hui.
+#
+#   oscarctl build-image        construit et pousse
+#   oscarctl build-image --local  construit sans pousser
+name: oscar-edge-build
+
+services:
+  edge:
+    image: ${OSCAR_EDGE_IMAGE:?OSCAR_EDGE_IMAGE absent - paquet installe ?}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ROBOT_BASE_IMAGE: ${ROBOT_BASE_IMAGE:?ROBOT_BASE_IMAGE must be configured}
+        OSCAR_EDGE_VERSION: ${OSCAR_EDGE_VERSION:?OSCAR_EDGE_VERSION absent}

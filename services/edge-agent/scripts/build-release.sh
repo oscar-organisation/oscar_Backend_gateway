@@ -19,7 +19,7 @@ runtime_files=(
 rm -rf "$stage_dir"
 mkdir -p "$stage_dir/runtime" "$dist_dir"
 
-for path in README.md VERSION manifest.json compose.yaml config contracts docker docs scripts systemd tools; do
+for path in README.md VERSION IMAGE manifest.json compose.yaml compose.build.yaml config contracts docker docs scripts systemd tools; do
   cp -a "$edge_dir/$path" "$stage_dir/$path"
 done
 

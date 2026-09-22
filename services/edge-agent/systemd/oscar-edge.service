@@ -8,8 +8,8 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/oscar/current
 ExecStartPre=/usr/local/bin/oscarctl preflight
-ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env -f /opt/oscar/current/compose.yaml up --detach edge
-ExecStop=/usr/bin/docker compose --env-file /etc/oscar/robot.env -f /opt/oscar/current/compose.yaml stop --timeout 5 edge
+ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml up --detach edge
+ExecStop=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml stop --timeout 5 edge
 TimeoutStartSec=300
 TimeoutStopSec=20
 
