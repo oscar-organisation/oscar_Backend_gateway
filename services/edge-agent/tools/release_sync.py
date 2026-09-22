@@ -129,28 +129,49 @@ def extraire(archive, destination):
     return racines[0]
 
 
-def installer(dossier_release, timeout=900.0):
-    # type: (Path, float) -> Tuple[int, str]
-    return executer(["bash", str(dossier_release / "scripts" / "install.sh")], timeout=timeout)
+def installer(dossier_release, timeout=900.0, mettre_en_service=True):
+    # type: (Path, float, bool) -> Tuple[int, str]
+    """Depose une release, et ne la met en service que si on le demande.
+
+    Deux passes, volontairement : la premiere pose les fichiers sans toucher
+    a /opt/oscar/current, ce qui laisse le temps de verifier que l'image
+    correspondante existe ; la seconde installe outils et unites et fait
+    basculer. Sans cette separation, une image absente du registre laissait le
+    robot avec un lien deja deplace vers une version qu'il ne pouvait pas
+    demarrer.
+    """
+    commande = ["bash", str(dossier_release / "scripts" / "install.sh")]
+    if not mettre_en_service:
+        commande.append("--no-switch")
+    return executer(commande, timeout=timeout)
 
 
 def reference_image(racine, version, config):
     # type: (Path, str, Path) -> str
     """Image attendue par une release installee.
 
-    Le depot est nomme par la release elle-meme, l'hote du registre par le
-    profil du robot : le meme paquet peut ainsi viser un registre de
-    preproduction sans etre reconstruit.
+    Trois sources se rejoignent ici, et la separation est voulue : la release
+    nomme le depot, le profil du robot nomme la famille de chassis, et son
+    fichier de configuration nomme le registre. Le meme paquet vise ainsi un
+    registre de preproduction sans etre reconstruit.
+
+    Le profil entre dans le nom parce qu'une version donnee du paquet ne
+    produit pas une image mais une par famille de chassis : celle d'un
+    ROSMASTER porte la base ROS du constructeur, celle d'un autre chassis en
+    porte une autre. Sans ce suffixe, la seconde ecraserait la premiere sous
+    le meme nom.
     """
-    registre = lire_env(config).get("OSCAR_REGISTRY", "").strip()
-    if not registre:
+    profil_env = lire_env(config)
+    registre = profil_env.get("OSCAR_REGISTRY", "").strip()
+    famille = profil_env.get("OSCAR_ROBOT_PROFILE", "").strip()
+    if not registre or not famille:
         return ""
     fichier = racine / "releases" / version / "IMAGE"
     try:
         depot = fichier.read_text(encoding="utf-8").strip()
     except OSError:
-        depot = "oscar/edge"
-    return "%s/%s:%s" % (registre, depot or "oscar/edge", version)
+        depot = ""
+    return "%s/%s-%s:%s" % (registre, depot or "oscar/edge", famille, version)
 
 
 def poser_release_env(racine, version, config, chemin=None):
@@ -248,13 +269,9 @@ def reconcilier(options):
             return 65
 
         dossier_release = extraire(archive, dossier_temporaire)
-        code, sortie = installer(dossier_release)
+        code, sortie = installer(dossier_release, mettre_en_service=False)
         if code != 0:
             motif = "installation refusee : %s" % sortie[-300:]
-            # install.sh a deja pose release.env sur la version qu'il installait ;
-            # comme on ne bascule pas, on le ramene sur celle qui tourne.
-            if installee:
-                poser_release_env(options.root, installee, options.config, options.release_env)
             logger.error(motif)
             _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
             return 70
@@ -264,17 +281,23 @@ def reconcilier(options):
         # au lieu de le laisser devant un conteneur qui ne demarrera pas.
         image = reference_image(options.root, version, options.config)
         if not image:
-            code, sortie = 78, "OSCAR_REGISTRY absent de %s" % options.config
+            code, sortie = 78, ("OSCAR_REGISTRY ou OSCAR_ROBOT_PROFILE absent de %s"
+                                % options.config)
         else:
             code, sortie = tirer_image(image)
         if code != 0:
             motif = "image %s indisponible : %s" % (image or "?", sortie[-200:])
-            if installee:
-                poser_release_env(options.root, installee, options.config, options.release_env)
             logger.error(motif)
             _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
             return 69
 
+        # L'image est la : on peut mettre la release en service.
+        code, sortie = installer(dossier_release)
+        if code != 0:
+            motif = "mise en service refusee : %s" % sortie[-300:]
+            logger.error(motif)
+            _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
+            return 70
         basculer(options.root, version, options.config, options.release_env)
         code, sortie = executer(["/usr/local/libexec/oscar-preflight"], timeout=300.0)
         if code != 0 and installee:

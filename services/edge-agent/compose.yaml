@@ -21,7 +21,11 @@ services:
       - /dev/bus/usb:/dev/bus/usb
     device_cgroup_rules:
       - "c 189:* rmw"
-    stop_grace_period: 5s
+    # Cinq secondes ne suffisaient pas : la mise en route lance des ros2 launch
+    # qui eteignent leurs noeuds un par un. Docker tuait donc le conteneur en
+    # plein arret, ou le laissait a moitie vivant assez longtemps pour que la
+    # relance suivante croie qu'il tournait encore.
+    stop_grace_period: 30s
     logging:
       driver: json-file
       options:

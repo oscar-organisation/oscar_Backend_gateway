@@ -1,6 +1,6 @@
 {
   "name": "oscar-edge",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "contractVersion": 1,
   "supportedArchitectures": [
     "aarch64",
@@ -36,7 +36,7 @@
     "verification": "sha256 + HMAC par cle robot"
   },
   "image": {
-    "repository": "oscar/edge",
+    "repository": "oscar/edge-<profil>",
     "source": "registry",
     "builtOn": "robot-de-reference",
     "reference": "/etc/oscar/release.env"

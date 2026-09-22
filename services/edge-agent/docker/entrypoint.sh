@@ -68,10 +68,30 @@ demarrer_bringup() {
 
 cleanup() {
   trap - TERM INT EXIT
-  kill -TERM ${media_pid:+"$media_pid"} ${command_pid:+"$command_pid"} \
-       ${bringup_pids[@]:+"${bringup_pids[@]}"} 2>/dev/null || true
-  wait ${media_pid:+"$media_pid"} ${command_pid:+"$command_pid"} \
-       ${bringup_pids[@]:+"${bringup_pids[@]}"} 2>/dev/null || true
+  local enfants=(
+    ${media_pid:+"$media_pid"} ${command_pid:+"$command_pid"}
+    ${bringup_pids[@]:+"${bringup_pids[@]}"}
+  )
+  (( ${#enfants[@]} )) || return 0
+  kill -TERM "${enfants[@]}" 2>/dev/null || true
+
+  # L'attente est bornee, et ce n'est pas un detail de confort. Un ros2 launch
+  # eteint ses noeuds un par un et peut y passer plusieurs dizaines de
+  # secondes ; l'attente etait illimitee, si bien que le conteneur survivait a
+  # son propre arret. La relance qui suivait voyait alors un conteneur encore
+  # « Running », ne faisait rien, et personne ne redemarrait le runtime quand
+  # l'ancien disparaissait enfin.
+  local limite="${OSCAR_STOP_TIMEOUT:-20}" restants pid
+  for (( attente = 0; attente < limite; attente++ )); do
+    restants=0
+    for pid in "${enfants[@]}"; do
+      kill -0 "$pid" 2>/dev/null && restants=1
+    done
+    (( restants )) || return 0
+    sleep 1
+  done
+  echo "[oscar-edge] arret force apres ${limite}s : des agents n'ont pas rendu la main" >&2
+  kill -KILL "${enfants[@]}" 2>/dev/null || true
 }
 trap cleanup TERM INT EXIT
 

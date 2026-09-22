@@ -115,7 +115,8 @@ class CycleFixture(unittest.TestCase):
         self.config = racine / "robot.env"
         self.config.write_text(
             "OSCAR_ROBOT_ID=oscar-02\nOSCAR_API_URL=https://console.test/api\n"
-            "OSCAR_REGISTRY=registre.test:5000\n", encoding="utf-8")
+            "OSCAR_REGISTRY=registre.test:5000\nOSCAR_ROBOT_PROFILE=chassis-test\n",
+            encoding="utf-8")
         self.release_env = racine / "release.env"
         self.cle_fichier = racine / "agent.key"
         self.cle_fichier.write_text("cle-de-test\n", encoding="utf-8")
@@ -149,8 +150,9 @@ class CycleFixture(unittest.TestCase):
         MODULE._appel = appel
         MODULE.telecharger = lambda url, cle, destination, timeout=600.0: destination.write_bytes(
             self.archive_source.read_bytes())
-        MODULE.installer = lambda dossier, timeout=900.0: (
-            self.installations.append(dossier) or self._preparer(dossier) or (0, ""))
+        MODULE.installer = lambda dossier, timeout=900.0, mettre_en_service=True: (
+            self.installations.append((dossier, mettre_en_service))
+            or self._preparer(dossier) or (0, ""))
         def executer(commande, timeout=600.0):
             """Distingue ce que la reconciliation lance vraiment.
 
@@ -248,7 +250,8 @@ class ReferenceImageTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.racine = Path(self.temp.name)
         self.config = self.racine / "robot.env"
-        self.config.write_text("OSCAR_REGISTRY=registre.test:5000\n", encoding="utf-8")
+        self.config.write_text("OSCAR_REGISTRY=registre.test:5000\nOSCAR_ROBOT_PROFILE=chassis-test\n",
+            encoding="utf-8")
         (self.racine / "releases" / "2.0.0").mkdir(parents=True)
 
     def tearDown(self) -> None:
@@ -259,12 +262,12 @@ class ReferenceImageTest(unittest.TestCase):
         (self.racine / "releases" / "2.0.0" / "IMAGE").write_text("oscar/edge", encoding="utf-8")
         self.assertEqual(
             MODULE.reference_image(self.racine, "2.0.0", self.config),
-            "registre.test:5000/oscar/edge:2.0.0")
+            "registre.test:5000/oscar/edge-chassis-test:2.0.0")
 
     def test_une_release_sans_fichier_image_garde_le_depot_par_defaut(self) -> None:
         self.assertEqual(
             MODULE.reference_image(self.racine, "2.0.0", self.config),
-            "registre.test:5000/oscar/edge:2.0.0")
+            "registre.test:5000/oscar/edge-chassis-test:2.0.0")
 
     def test_sans_registre_configure_aucune_reference_n_est_produite(self) -> None:
         self.config.write_text("OSCAR_ROBOT_ID=oscar-02\n", encoding="utf-8")
@@ -285,19 +288,19 @@ class TirageTest(CycleFixture):
         """install.sh a deja ecrit la nouvelle reference : elle doit revenir."""
         self.code_tirage = 1
         MODULE.reconcilier(self._options())
-        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge:1.0.0",
+        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge-chassis-test:1.0.0",
                       self.release_env.read_text(encoding="utf-8"))
 
     def test_la_reference_d_image_suit_la_bascule(self) -> None:
         MODULE.reconcilier(self._options())
         contenu = self.release_env.read_text(encoding="utf-8")
         self.assertIn("OSCAR_EDGE_VERSION=1.1.0", contenu)
-        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge:1.1.0", contenu)
+        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge-chassis-test:1.1.0", contenu)
 
     def test_un_retour_arriere_restaure_aussi_la_reference_d_image(self) -> None:
         self.code_prevol = 1
         MODULE.reconcilier(self._options())
-        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge:1.0.0",
+        self.assertIn("OSCAR_EDGE_IMAGE=registre.test:5000/oscar/edge-chassis-test:1.0.0",
                       self.release_env.read_text(encoding="utf-8"))
 
     def test_une_image_deja_presente_n_est_pas_retelechargee(self) -> None:
@@ -311,3 +314,59 @@ class TirageTest(CycleFixture):
             "OSCAR_ROBOT_ID=oscar-02\nOSCAR_API_URL=https://console.test/api\n", encoding="utf-8")
         self.assertEqual(MODULE.reconcilier(self._options()), 69)
         self.assertEqual(MODULE.version_installee(self.root), "1.0.0")
+
+
+class FamilleDeChassisTest(unittest.TestCase):
+    """Une version du paquet donne une image par famille de chassis."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.racine = Path(self.temp.name)
+        self.config = self.racine / "robot.env"
+        (self.racine / "releases" / "2.0.0").mkdir(parents=True)
+        (self.racine / "releases" / "2.0.0" / "IMAGE").write_text("oscar/edge", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def _profil(self, famille: str) -> None:
+        self.config.write_text(
+            f"OSCAR_REGISTRY=registre.test:5000\nOSCAR_ROBOT_PROFILE={famille}\n",
+            encoding="utf-8")
+
+    def test_deux_chassis_ne_se_disputent_pas_le_meme_tag(self) -> None:
+        """Sans le suffixe, la seconde image ecraserait la premiere."""
+        self._profil("rosmaster-m3pro")
+        rosmaster = MODULE.reference_image(self.racine, "2.0.0", self.config)
+        self._profil("unitree-g1")
+        unitree = MODULE.reference_image(self.racine, "2.0.0", self.config)
+        self.assertEqual(rosmaster, "registre.test:5000/oscar/edge-rosmaster-m3pro:2.0.0")
+        self.assertEqual(unitree, "registre.test:5000/oscar/edge-unitree-g1:2.0.0")
+        self.assertNotEqual(rosmaster, unitree)
+
+    def test_sans_profil_aucune_reference_n_est_produite(self) -> None:
+        """Mieux vaut refuser que deviner une famille et ecraser l'image d'une autre."""
+        self.config.write_text("OSCAR_REGISTRY=registre.test:5000\n", encoding="utf-8")
+        self.assertEqual(MODULE.reference_image(self.racine, "2.0.0", self.config), "")
+
+
+class DepotAvantBasculeTest(CycleFixture):
+    """Une release se depose d'abord, ne se met en service qu'ensuite.
+
+    L'installation deplacait elle-meme /opt/oscar/current. Le controle de
+    l'image arrivait donc apres la bascule : une image absente du registre
+    laissait le robot avec un lien, une reference d'image et un conteneur qui
+    designaient trois versions differentes.
+    """
+
+    def test_la_premiere_passe_ne_met_pas_en_service(self) -> None:
+        MODULE.reconcilier(self._options())
+        self.assertEqual([mise_en_service for _, mise_en_service in self.installations],
+                         [False, True])
+
+    def test_une_image_absente_ne_deplace_jamais_le_lien(self) -> None:
+        self.code_tirage = 1
+        MODULE.reconcilier(self._options())
+        self.assertEqual(MODULE.version_installee(self.root), "1.0.0")
+        self.assertEqual([mise_en_service for _, mise_en_service in self.installations],
+                         [False])

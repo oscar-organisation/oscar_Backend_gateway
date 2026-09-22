@@ -4,4 +4,7 @@ After=oscar-edge.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/oscar-healthcheck --quiet
+# Le tiret laisse passer un diagnostic en echec : on veut surtout que la ligne
+# suivante s'execute, car c'est elle qui rattrape un runtime disparu.
+ExecStart=-/usr/local/bin/oscar-healthcheck --quiet
+ExecStart=/usr/local/bin/oscarctl ensure

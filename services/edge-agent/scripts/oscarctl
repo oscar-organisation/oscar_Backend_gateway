@@ -14,6 +14,7 @@ Usage: oscarctl COMMAND
   preflight  Valider l'hote, la configuration et les credentials
   activate   Tirer l'image, activer au demarrage et lancer OSCAR Edge
   pull       Tirer l'image de la release installee depuis le registre
+  ensure     Relancer le runtime s'il a disparu alors qu'il devait tourner
   start      Lancer le runtime
   stop       Arreter le runtime et publier un arret via l'agent
   restart    Redemarrer proprement le runtime
@@ -97,6 +98,17 @@ case "${1:-}" in
     docker push "$image"
     printf 'Image poussee: %s\n' \
       "$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")"
+    ;;
+  ensure)
+    # Le runtime doit tourner des lors que son service est actif. Il est deja
+    # arrive qu'un conteneur meure sans que rien ne le relance : compose avait
+    # cru le trouver vivant, systemd tenait son unite pour demarree, et le
+    # robot est reste muet cinq minutes. La minuterie de sante repasse ici.
+    systemctl is-active --quiet oscar-edge.service || exit 0
+    etat="$(docker inspect -f '{{.State.Status}}' oscar-edge 2>/dev/null || echo absent)"
+    [[ "$etat" == "running" ]] && exit 0
+    echo "Runtime $etat alors que le service est actif : relance." >&2
+    "${compose[@]}" up --detach --force-recreate edge
     ;;
   start)
     systemctl start oscar-edge.service
