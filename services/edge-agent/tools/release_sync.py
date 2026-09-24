@@ -224,6 +224,7 @@ def reconcilier(options):
     # type: (argparse.Namespace) -> int
     profil = lire_env(options.config)
     robot = profil.get("OSCAR_ROBOT_ID", "")
+    famille = profil.get("OSCAR_ROBOT_PROFILE", "")
     base = options.api_url or profil.get("OSCAR_API_URL", "")
     if not robot or not base:
         logger.error("OSCAR_ROBOT_ID et OSCAR_API_URL sont requis dans %s", options.config)
@@ -254,7 +255,7 @@ def reconcilier(options):
     if not hmac.compare_digest(str(release.get("empreinte_signee") or ""), attendue):
         motif = "empreinte non signee par notre cle : archive refusee sans etre telechargee"
         logger.error(motif)
-        _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
+        _rendre_compte(racine_api, robot, cle, installee, "failed", motif, profil=famille)
         return 65
 
     dossier_temporaire = Path(tempfile.mkdtemp(prefix="oscar-release-"))
@@ -265,7 +266,7 @@ def reconcilier(options):
         if not hmac.compare_digest(obtenue, str(release.get("sha256"))):
             motif = "empreinte de l'archive telechargee differente de celle publiee"
             logger.error(motif)
-            _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
+            _rendre_compte(racine_api, robot, cle, installee, "failed", motif, profil=famille)
             return 65
 
         dossier_release = extraire(archive, dossier_temporaire)
@@ -273,7 +274,7 @@ def reconcilier(options):
         if code != 0:
             motif = "installation refusee : %s" % sortie[-300:]
             logger.error(motif)
-            _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
+            _rendre_compte(racine_api, robot, cle, installee, "failed", motif, profil=famille)
             return 70
 
         # L'image se tire avant la bascule. Un registre injoignable ou une
@@ -288,7 +289,7 @@ def reconcilier(options):
         if code != 0:
             motif = "image %s indisponible : %s" % (image or "?", sortie[-200:])
             logger.error(motif)
-            _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
+            _rendre_compte(racine_api, robot, cle, installee, "failed", motif, profil=famille)
             return 69
 
         # L'image est la : on peut mettre la release en service.
@@ -296,7 +297,7 @@ def reconcilier(options):
         if code != 0:
             motif = "mise en service refusee : %s" % sortie[-300:]
             logger.error(motif)
-            _rendre_compte(racine_api, robot, cle, installee, "failed", motif)
+            _rendre_compte(racine_api, robot, cle, installee, "failed", motif, profil=famille)
             return 70
         basculer(options.root, version, options.config, options.release_env)
         code, sortie = executer(["/usr/local/libexec/oscar-preflight"], timeout=300.0)
@@ -307,29 +308,35 @@ def reconcilier(options):
             executer(["systemctl", "restart", "oscar-edge.service"])
             motif = "prevol en echec sur %s, retour a %s" % (version, installee)
             logger.error(motif)
-            _rendre_compte(racine_api, robot, cle, installee, "rolled_back", motif)
+            _rendre_compte(racine_api, robot, cle, installee, "rolled_back", motif, profil=famille)
             return 75
         if code != 0:
             motif = "prevol en echec sur %s et aucune version precedente" % version
             logger.error(motif)
-            _rendre_compte(racine_api, robot, cle, version, "failed", motif)
+            _rendre_compte(racine_api, robot, cle, version, "failed", motif, profil=famille)
             return 70
 
         if not options.no_restart:
             executer(["systemctl", "restart", "oscar-edge.service"])
         logger.info("version %s installee", version)
         _rendre_compte(racine_api, robot, cle, version, "installed",
-                       "installee depuis %s" % (installee or "aucune"), release.get("sha256"))
+                       "installee depuis %s" % (installee or "aucune"), release.get("sha256"),
+                       profil=famille)
         return 0
     finally:
         shutil.rmtree(str(dossier_temporaire), ignore_errors=True)
 
 
-def _rendre_compte(racine_api, robot, cle, version, statut, message, sha256=None):
-    # type: (str, str, str, str, str, str, Optional[str]) -> None
+def _rendre_compte(racine_api, robot, cle, version, statut, message, sha256=None, profil=None):
+    # type: (str, str, str, str, str, str, Optional[str], Optional[str]) -> None
     corps = {"version": version, "statut": statut, "message": message[:500]}
     if sha256:
         corps["sha256"] = sha256
+    if profil:
+        # Le robot est la seule source qui sache sur quel chassis il tourne.
+        # La console enregistre cette declaration a cote de ce que l'operateur
+        # a saisi, et montre l'ecart au lieu de le masquer.
+        corps["profil"] = profil
     try:
         _appel("%s/studio/runtime/robots/%s/release/report" % (racine_api, robot), cle, corps)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as erreur:
