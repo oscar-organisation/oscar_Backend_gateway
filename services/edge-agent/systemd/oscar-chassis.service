@@ -1,0 +1,18 @@
+[Unit]
+Description=OSCAR Chassis (pilotes constructeur et arret de securite)
+Wants=network-online.target docker.service
+After=network-online.target docker.service oscar-edge-bridge.service
+
+[Service]
+# Unite distincte du runtime : une mise a jour d'OSCAR ou un nouveau bundle
+# redemarrent oscar-edge.service, jamais les pilotes du chassis.
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/oscar/current
+ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml up --detach chassis
+ExecStop=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml stop --timeout 30 chassis
+TimeoutStartSec=300
+TimeoutStopSec=40
+
+[Install]
+WantedBy=multi-user.target

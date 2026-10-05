@@ -1,0 +1,102 @@
+name: Construire OSCAR Edge
+
+# Une etiquette edge-v<version> fabrique tout ce qu'un robot recevra :
+# l'image ARM64 dans Harbor, sa signature, et l'archive de release qui la
+# designe par empreinte. Aucune machine de terrain ne construit plus rien.
+on:
+  push:
+    tags: ["edge-v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: edge-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEPOT: oscar/edge-humble
+
+jobs:
+  construire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: L'etiquette correspond a la version du paquet
+        id: version
+        run: |
+          set -Eeuo pipefail
+          version="${GITHUB_REF_NAME#edge-v}"
+          fichier="$(tr -d '[:space:]' < services/edge-agent/VERSION)"
+          if [ "$version" != "$fichier" ]; then
+            echo "::error::Etiquette $GITHUB_REF_NAME, mais VERSION contient $fichier"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Tests du paquet embarque
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest -q services/edge-agent/tests
+
+      # Emulation ARM64 : l'image ne compile presque rien (roues Python
+      # precompilees, deux messages ROS), la construction reste de quelques
+      # minutes sans runner ARM dedie.
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - name: Construire et pousser l'image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: services/edge-agent
+          file: services/edge-agent/docker/Dockerfile
+          platforms: linux/arm64
+          pull: true
+          push: true
+          provenance: false
+          tags: ${{ secrets.HARBOR_REGISTRY }}/${{ env.DEPOT }}:${{ steps.version.outputs.version }}
+          build-args: |
+            OSCAR_EDGE_VERSION=${{ steps.version.outputs.version }}
+
+      - uses: sigstore/cosign-installer@v3
+
+      # La signature porte sur l'empreinte, jamais sur l'etiquette. Le journal
+      # public de transparence n'est pas utilise : les images sont privees.
+      - name: Signer l'image
+        env:
+          COSIGN_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          IMAGE: ${{ secrets.HARBOR_REGISTRY }}/${{ env.DEPOT }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          cosign sign --yes --tlog-upload=false --key env://COSIGN_KEY "$IMAGE"
+          cosign verify --insecure-ignore-tlog=true \
+            --key services/edge-agent/config/cosign.pub "$IMAGE" >/dev/null
+
+      - name: Fabriquer l'archive de release
+        env:
+          OSCAR_EDGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: services/edge-agent/scripts/build-release.sh
+
+      - name: Publier l'archive sur GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            "services/edge-agent/dist/oscar-edge-$VERSION.tar.gz" \
+            --title "OSCAR Edge $VERSION" \
+            --notes "Image \`$DEPOT@$DIGEST\`, signee. Archive a publier dans la console."

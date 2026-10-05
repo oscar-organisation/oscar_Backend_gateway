@@ -4,17 +4,38 @@ Paquet embarque canonique pour raccorder un robot ROS 2 a OSCAR. Il regroupe
 le transport video, la reception des commandes LiveKit, l'adaptation ROS 2,
 les garde-fous, l'autodemarrage et le diagnostic dans une release versionnee.
 
-Le paquet ne remplace pas les pilotes du constructeur. Il se pose au-dessus
-d'une image robot contenant ROS 2, les messages du constructeur et les pilotes
-camera/moteurs. Le profil `rosmaster-m3pro` documente l'integration actuelle.
+Le paquet ne remplace pas les pilotes du constructeur : il les fait tourner
+dans l'image livree avec le robot, telle quelle, a cote de son propre
+conteneur. Le profil `rosmaster-m3pro` documente l'integration actuelle.
+
+## Deux conteneurs, trois couches
+
+| Couche | Contenu | Vient de | Change quand |
+| --- | --- | --- | --- |
+| Hote | systemd, compose, `oscarctl`, identite du robot | l'archive de release | a chaque release |
+| `oscar-chassis` | pilotes du constructeur, arret de securite | `ROBOT_BASE_IMAGE`, deja sur le robot | jamais par nous |
+| `oscar-edge` | runtime OSCAR (video, commande) | Harbor, par empreinte | a chaque release |
+
+Les deux conteneurs se parlent par ROS 2 (FastDDS, UDPv4, reseau de l'hote).
+Une mise a jour d'OSCAR redemarre `oscar-edge` seul : la camera et la base
+continuent de tourner.
+
+L'**arret de securite** (`runtime/arret_securite.py`) vit dans `oscar-chassis`.
+Si la consigne `/cmd_vel` se tait plus de 300 ms apres un mouvement, il publie
+une vitesse nulle. Il couvre le cas que le garde-fou de l'agent de commande ne
+peut pas couvrir : la mort de l'agent lui-meme.
 
 ## Construction
 
 Depuis la racine du depot :
 
 ```bash
-./services/edge-agent/scripts/build-release.sh
+OSCAR_EDGE_DIGEST=sha256:... ./services/edge-agent/scripts/build-release.sh
 ```
+
+La CI le fait apres avoir construit et signe l'image. Une archive sans
+empreinte est refusee, sauf pour un essai local
+(`OSCAR_RELEASE_SANS_EMPREINTE=1`).
 
 L'archive est creee dans `services/edge-agent/dist/` avec les modules Python
 figés dans `services/edge-agent/runtime/`. Elle est autonome et ne dépend pas
@@ -22,40 +43,30 @@ d'un autre dépôt sur le robot.
 
 ## D'ou vient l'image
 
-Le paquet ne contient pas l'image du runtime : il contient sa recette et la
-reference de celle qui lui correspond. L'image vit dans un registre joint par
-le seul tailnet, et le robot la tire.
+L'image `oscar/edge-humble` part de `ros:humble-ros-base` et ne contient que
+le runtime OSCAR et les interfaces du chassis (`interfaces/`). Elle ne depend
+donc que de la distribution ROS, et sert toutes les familles qui la partagent.
 
-La fabrication se fait sur un **robot de reference**, pas sur un serveur, pour
-une raison materielle : l'image de base du constructeur ne vit que sur le
-chassis et pese 8,68 Go. La construire ailleurs demanderait l'emulation d'une
-architecture et une copie de cette base que le registre du constructeur, hors
-d'atteinte du reseau actuel, ne peut pas fournir.
+Elle est construite par la CI, jamais sur un robot : le workflow
+`build-edge-arm64.yml` part d'une etiquette `edge-v<version>`, construit pour
+`linux/arm64`, pousse dans Harbor, **signe l'image avec cosign**, puis
+fabrique l'archive de release avec l'empreinte de l'image (`IMAGE_DIGEST`).
 
-```bash
-# Sur le robot de reference, une fois par version
-sudo docker login "$OSCAR_REGISTRY" --username oscar-builder
-sudo oscarctl build-image
-```
+Le robot tire l'image par son empreinte et verifie sa signature avec la cle
+publique livree dans la release (`config/cosign.pub`) avant de basculer. Une
+image non signee, ou modifiee dans le registre, est refusee.
 
-L'image porte le nom de la famille de chassis :
-`oscar/edge-rosmaster-m3pro:0.5.6`, `oscar/edge-unitree-g1:0.5.6`. Une version
-du paquet ne produit pas une image mais une par famille, puisque chacune porte
-la base ROS de son constructeur. Le suffixe vient de `OSCAR_ROBOT_PROFILE`, et
-son absence fait refuser la release plutot que deviner.
-
-Les robots de la flotte ne construisent rien. Leur compte n'a que la lecture :
-le registre refuse l'ecriture, pour qu'une cle qui fuite ne permette pas de
-pousser une image que tout le parc installerait ensuite.
+Les robots n'ont que la lecture sur le registre : une cle qui fuite ne permet
+pas de pousser une image que tout le parc installerait ensuite.
 
 ## Installation sur un robot
 
 ```bash
-tar -xzf oscar-edge-0.5.6.tar.gz
-cd oscar-edge-0.5.6
+tar -xzf oscar-edge-0.6.0.tar.gz
+cd oscar-edge-0.6.0
 sudo ./scripts/install.sh
 sudoedit /etc/oscar/robot.env
-sudo ./scripts/provision-registry.sh ca.crt oscar-robot
+sudo ./scripts/provision-registry.sh - 'compte-machine-oscar+coolify-et-robots-lecture-des-images'
 sudo install -m 600 media.json /etc/oscar/credentials/media.json
 sudo install -m 600 command.json /etc/oscar/credentials/command.json
 sudo install -m 600 agent.key /etc/oscar/credentials/agent.key
@@ -63,8 +74,7 @@ sudo oscarctl doctor
 sudo oscarctl activate
 ```
 
-`provision-registry.sh` pose l'autorite du registre et ouvre une session en
-lecture. `activate` tire l'image, active l'autodemarrage et lance le runtime.
+`provision-registry.sh` ouvre une session en lecture sur Harbor. `activate` tire l'image, active l'autodemarrage et lance le runtime.
 Aucun mouvement n'est possible sans commande fraiche et sans bouton de
 presence maintenu.
 

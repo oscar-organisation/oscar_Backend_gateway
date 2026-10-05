@@ -30,10 +30,20 @@ depot="${depot:-oscar/edge}"
 # chacune porte la base ROS de son constructeur. Le profil entre donc dans le
 # nom, faute de quoi deux chassis se disputeraient le meme tag.
 
+# Depuis 0.6.0, une release designe son image par son empreinte : l'image ne
+# depend plus de la famille de chassis, et ce qui tourne est, octet pour
+# octet, ce que la CI a construit et signe. Une etiquette peut etre reecrite,
+# une empreinte non.
+empreinte="$(tr -d '[:space:]' < "$release_dir/IMAGE_DIGEST" 2>/dev/null || true)"
+if [[ -n "$empreinte" ]]; then
+  image="$registry/$depot@$empreinte"
+else
+  image="$registry/$depot-$famille:$version"
+fi
 cat > "$sortie" <<RELEASE
 # Ecrit par le paquet OSCAR Edge. Ne pas editer : toute modification est
 # perdue a la prochaine installation ou bascule de version.
 OSCAR_EDGE_VERSION=$version
-OSCAR_EDGE_IMAGE=$registry/$depot-$famille:$version
+OSCAR_EDGE_IMAGE=$image
 RELEASE
 chmod 0644 "$sortie"

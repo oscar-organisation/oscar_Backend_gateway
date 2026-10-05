@@ -1,7 +1,7 @@
 services:
   edge:
-    # L'image vient du registre, jamais d'une construction locale. La reference
-    # est posee par le paquet dans /etc/oscar/release.env : c'est la release qui
+    # L'image vient du registre, designee par son empreinte. La reference est
+    # posee par le paquet dans /etc/oscar/release.env : c'est la release qui
     # sait quelle image lui correspond, pas l'operateur.
     image: ${OSCAR_EDGE_IMAGE:?OSCAR_EDGE_IMAGE absent - paquet installe ?}
     container_name: oscar-edge
@@ -16,15 +16,45 @@ services:
       - /etc/oscar/bundle.env
     volumes:
       - /etc/oscar/credentials:/run/secrets/oscar:ro
-      # Camera et peripheriques USB du chassis : le runtime met lui-meme les
-      # pilotes en route sur un robot sorti de carton.
+    # Le runtime n'a besoin d'aucun peripherique : la camera et la carte
+    # moteur appartiennent au conteneur chassis.
+    stop_grace_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: 20m
+        max-file: "3"
+
+  # Pilotes du constructeur et arret de securite. L'image est celle livree avec
+  # le robot (ROBOT_BASE_IMAGE dans robot.env) : jamais tiree, jamais modifiee,
+  # jamais redistribuee. Seuls deux fichiers de la release y sont montes.
+  chassis:
+    image: ${ROBOT_BASE_IMAGE:?ROBOT_BASE_IMAGE absent de robot.env}
+    pull_policy: never
+    container_name: oscar-chassis
+    network_mode: host
+    ipc: host
+    restart: unless-stopped
+    env_file:
+      - /etc/oscar/robot.env
+      - /etc/oscar/bundle.env
+    entrypoint: ["/opt/oscar-chassis/chassis.sh"]
+    volumes:
+      - ./docker/chassis.sh:/opt/oscar-chassis/chassis.sh:ro
+      - ./runtime/arret_securite.py:/opt/oscar-chassis/arret_securite.py:ro
+      - ./docker/healthcheck-chassis.sh:/opt/oscar-chassis/healthcheck.sh:ro
+      # Camera et peripheriques USB du chassis.
       - /dev/bus/usb:/dev/bus/usb
     device_cgroup_rules:
       - "c 189:* rmw"
-    # Cinq secondes ne suffisaient pas : la mise en route lance des ros2 launch
-    # qui eteignent leurs noeuds un par un. Docker tuait donc le conteneur en
-    # plein arret, ou le laissait a moitie vivant assez longtemps pour que la
-    # relance suivante croie qu'il tournait encore.
+    healthcheck:
+      test: ["CMD", "/opt/oscar-chassis/healthcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    # Un ros2 launch eteint ses noeuds un par un : cinq secondes ne suffisaient
+    # pas, et Docker tuait le conteneur en plein arret.
     stop_grace_period: 30s
     logging:
       driver: json-file

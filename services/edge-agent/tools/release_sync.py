@@ -171,7 +171,33 @@ def reference_image(racine, version, config):
         depot = fichier.read_text(encoding="utf-8").strip()
     except OSError:
         depot = ""
-    return "%s/%s-%s:%s" % (registre, depot or "oscar/edge", famille, version)
+    depot = depot or "oscar/edge"
+    # Depuis 0.6.0 : l'image est designee par son empreinte et ne depend plus
+    # de la famille, les pilotes du chassis vivant dans l'image constructeur.
+    try:
+        empreinte = (racine / "releases" / version / "IMAGE_DIGEST").read_text(
+            encoding="utf-8").strip()
+    except OSError:
+        empreinte = ""
+    if empreinte:
+        return "%s/%s@%s" % (registre, depot, empreinte)
+    return "%s/%s-%s:%s" % (registre, depot, famille, version)
+
+
+def verifier_signature(racine, version, image, timeout=300.0):
+    # type: (Path, str, str, float) -> Tuple[int, str]
+    """Refuse une image dont la signature ne se verifie pas.
+
+    Une release qui livre une cle publique exige une image signee par la
+    cle privee correspondante. Les releases plus anciennes n'en livrent pas
+    et passent, faute de quoi aucun retour vers elles ne serait possible.
+    """
+    dossier = racine / "releases" / version
+    cle = dossier / "config" / "cosign.pub"
+    if not cle.exists():
+        return 0, "release sans cle de signature"
+    return executer([str(dossier / "scripts" / "verify-image.sh"), image, str(cle)],
+                    timeout=timeout)
 
 
 def poser_release_env(racine, version, config, chemin=None):
@@ -288,6 +314,13 @@ def reconcilier(options):
             code, sortie = tirer_image(image)
         if code != 0:
             motif = "image %s indisponible : %s" % (image or "?", sortie[-200:])
+            logger.error(motif)
+            _rendre_compte(racine_api, robot, cle, installee, "failed", motif, profil=famille)
+            return 69
+
+        code, sortie = verifier_signature(options.root, version, image)
+        if code != 0:
+            motif = "signature de %s refusee : %s" % (image, sortie[-200:])
             logger.error(motif)
             _rendre_compte(racine_api, robot, cle, installee, "failed", motif, profil=famille)
             return 69

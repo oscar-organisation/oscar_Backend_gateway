@@ -12,7 +12,7 @@ source_if_present() {
 }
 
 source_if_present "${OSCAR_ROS_SETUP:-/opt/ros/${ROS_DISTRO:-humble}/setup.bash}"
-source_if_present "${OSCAR_VENDOR_SETUP:-}"
+source_if_present "${OSCAR_INTERFACES_SETUP:-}"
 
 required=(OSCAR_ROBOT_ID OSCAR_MEDIA_TOKEN_FILE OSCAR_COMMAND_TOKEN_FILE)
 for name in "${required[@]}"; do
@@ -41,44 +41,17 @@ fi
 
 media_pid=""
 command_pid=""
-bringup_pids=()
-
-# Mise en route du chassis, declaree par le profil materiel. Sur un robot sorti
-# de carton, personne n'a lance les pilotes : le deploiement doit le faire, ou
-# les agents s'abonneraient a des topics que rien ne publie. Le bundle ne decide
-# pas de ces commandes — elles dependent du chassis, pas de la mission.
-demarrer_bringup() {
-  local total="${OSCAR_BRINGUP_COUNT:-0}"
-  [[ "$total" =~ ^[0-9]+$ ]] || return 0
-  local index variable commande attente_variable attente
-  for ((index = 1; index <= total; index++)); do
-    variable="OSCAR_BRINGUP_${index}"
-    commande="${!variable:-}"
-    [[ -z "$commande" ]] && continue
-    echo "[oscar-edge] mise en route ${index}/${total} : ${commande}"
-    bash -lc "source \"${OSCAR_ROS_SETUP:-/opt/ros/${ROS_DISTRO:-humble}/setup.bash}\" >/dev/null 2>&1
-              [[ -n \"${OSCAR_VENDOR_SETUP:-}\" && -f \"${OSCAR_VENDOR_SETUP:-}\" ]] && source \"${OSCAR_VENDOR_SETUP}\" >/dev/null 2>&1
-              exec ${commande}" &
-    bringup_pids+=($!)
-    attente_variable="OSCAR_BRINGUP_${index}_DELAY"
-    attente="${!attente_variable:-0}"
-    [[ "$attente" =~ ^[0-9]+$ ]] && (( attente > 0 )) && sleep "$attente"
-  done
-}
 
 cleanup() {
   trap - TERM INT EXIT
   local enfants=(
     ${media_pid:+"$media_pid"} ${command_pid:+"$command_pid"}
-    ${bringup_pids[@]:+"${bringup_pids[@]}"}
   )
   (( ${#enfants[@]} )) || return 0
   kill -TERM "${enfants[@]}" 2>/dev/null || true
 
-  # L'attente est bornee, et ce n'est pas un detail de confort. Un ros2 launch
-  # eteint ses noeuds un par un et peut y passer plusieurs dizaines de
-  # secondes ; l'attente etait illimitee, si bien que le conteneur survivait a
-  # son propre arret. La relance qui suivait voyait alors un conteneur encore
+  # L'attente est bornee, et ce n'est pas un detail de confort. Illimitee,
+  # elle laissait le conteneur survivre a son propre arret. La relance qui suivait voyait alors un conteneur encore
   # « Running », ne faisait rien, et personne ne redemarrait le runtime quand
   # l'ancien disparaissait enfin.
   local limite="${OSCAR_STOP_TIMEOUT:-20}" restants pid
@@ -94,8 +67,6 @@ cleanup() {
   kill -KILL "${enfants[@]}" 2>/dev/null || true
 }
 trap cleanup TERM INT EXIT
-
-demarrer_bringup
 
 if [[ "$enable_media" == true ]]; then
   python3 /opt/oscar/runtime/oscar_robot_media.py \
@@ -133,12 +104,10 @@ fi
 
 echo "[oscar-edge] runtime ${OSCAR_EDGE_VERSION:-dev} actif pour ${OSCAR_ROBOT_ID}" \
      "(media=$enable_media commande=$enable_command" \
-     "mise-en-route=${#bringup_pids[@]}" \
      "bundle=${OSCAR_BUNDLE_CODE:-aucun} version=${OSCAR_BUNDLE_VERSION:-0})"
 
 set +e
-wait -n ${media_pid:+"$media_pid"} ${command_pid:+"$command_pid"} \
-        ${bringup_pids[@]:+"${bringup_pids[@]}"}
+wait -n ${media_pid:+"$media_pid"} ${command_pid:+"$command_pid"}
 exit_code=$?
 set -e
 echo "[oscar-edge] un agent s'est arrete (code=$exit_code), redemarrage supervise demande" >&2
