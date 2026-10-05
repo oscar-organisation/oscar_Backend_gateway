@@ -7,7 +7,8 @@
 # ne pousse jamais d'image ; le registre refuse d'ailleurs l'ecriture a ce
 # compte, de sorte qu'une cle qui fuite ne contamine pas la flotte.
 #
-#   sudo ./provision-registry.sh ca.crt oscar-robot
+#   sudo ./provision-registry.sh ca.crt oscar-robot          registre a autorite privee
+#   sudo ./provision-registry.sh - 'compte-machine-oscar+...'  Harbor, certificat public
 #
 # Le mot de passe est demande sur l'entree standard, jamais passe en argument :
 # la ligne de commande est visible de tout le systeme.
@@ -22,8 +23,10 @@ autorite="${1:-}"
 compte="${2:-oscar-robot}"
 config="${OSCAR_CONFIG_FILE:-/etc/oscar/robot.env}"
 
-if [[ -z "$autorite" || ! -r "$autorite" ]]; then
-  echo "Usage: provision-registry.sh CHEMIN_CA [COMPTE]" >&2
+# L'autorite n'est utile qu'au registre a certificat prive. Harbor presente un
+# certificat Let's Encrypt, que Docker verifie deja : on passe alors "-".
+if [[ -z "$autorite" || ( "$autorite" != "-" && ! -r "$autorite" ) ]]; then
+  echo "Usage: provision-registry.sh CHEMIN_CA|- [COMPTE]" >&2
   exit 2
 fi
 
@@ -33,11 +36,19 @@ if [[ -z "$registry" ]]; then
   exit 1
 fi
 
-# Docker cherche l'autorite a un emplacement nomme d'apres le registre.
-cible="/etc/docker/certs.d/$registry"
-install -d -m 0755 "$cible"
-install -m 0644 "$autorite" "$cible/ca.crt"
-echo "Autorite installee: $cible/ca.crt"
+famille="$(sed -n 's/^OSCAR_ROBOT_PROFILE=//p' "$config" | tail -1 | tr -d '"'"'"'\r' | tr -d '[:space:]')"
+if [[ -z "$famille" ]]; then
+  echo "OSCAR_ROBOT_PROFILE absent de $config." >&2
+  exit 1
+fi
+
+if [[ "$autorite" != "-" ]]; then
+  # Docker cherche l'autorite a un emplacement nomme d'apres le registre.
+  cible="/etc/docker/certs.d/$registry"
+  install -d -m 0755 "$cible"
+  install -m 0644 "$autorite" "$cible/ca.crt"
+  echo "Autorite installee: $cible/ca.crt"
+fi
 
 printf 'Mot de passe du compte %s: ' "$compte" >&2
 read -r -s motdepasse
@@ -58,8 +69,12 @@ unset motdepasse
 chmod 0600 /root/.docker/config.json
 
 # Verification dans les conditions d'une minuterie : environnement vide, root.
-if ! env -i PATH=/usr/bin:/bin HOME=/root docker pull "$registry/oscar/edge:sonde-inexistante" 2>&1 \
-  | grep -q "manifest unknown"; then
+# La sonde vise le depot de la famille avec une etiquette qui n'existe pas :
+# une reponse "introuvable" prouve que le compte lit ce depot, un refus
+# prouverait le contraire. registry:2 dit "manifest unknown", Harbor
+# "artifact ... not found".
+if ! env -i PATH=/usr/bin:/bin HOME=/root docker pull "$registry/oscar/edge-$famille:sonde-inexistante" 2>&1 \
+  | grep -Eq "manifest unknown|artifact .* not found"; then
   echo "Les identifiants ne sont pas lisibles dans les conditions de systemd." >&2
   exit 1
 fi
