@@ -39,7 +39,7 @@ sudo oscarctl build-image
 ```
 
 L'image porte le nom de la famille de chassis :
-`oscar/edge-rosmaster-m3pro:0.5.2`, `oscar/edge-unitree-g1:0.5.2`. Une version
+`oscar/edge-rosmaster-m3pro:0.5.6`, `oscar/edge-unitree-g1:0.5.6`. Une version
 du paquet ne produit pas une image mais une par famille, puisque chacune porte
 la base ROS de son constructeur. Le suffixe vient de `OSCAR_ROBOT_PROFILE`, et
 son absence fait refuser la release plutot que deviner.
@@ -51,8 +51,8 @@ pousser une image que tout le parc installerait ensuite.
 ## Installation sur un robot
 
 ```bash
-tar -xzf oscar-edge-0.5.2.tar.gz
-cd oscar-edge-0.5.2
+tar -xzf oscar-edge-0.5.6.tar.gz
+cd oscar-edge-0.5.6
 sudo ./scripts/install.sh
 sudoedit /etc/oscar/robot.env
 sudo ./scripts/provision-registry.sh ca.crt oscar-robot

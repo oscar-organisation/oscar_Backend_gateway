@@ -14,7 +14,7 @@ Usage: oscarctl COMMAND
   preflight  Valider l'hote, la configuration et les credentials
   activate   Tirer l'image, activer au demarrage et lancer OSCAR Edge
   pull       Tirer l'image de la release installee depuis le registre
-  ensure     Relancer le runtime s'il a disparu alors qu'il devait tourner
+  ensure     Rattraper un runtime disparu, ou muet malgre ses processus
   start      Lancer le runtime
   stop       Arreter le runtime et publier un arret via l'agent
   restart    Redemarrer proprement le runtime
@@ -100,14 +100,56 @@ case "${1:-}" in
       "$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")"
     ;;
   ensure)
-    # Le runtime doit tourner des lors que son service est actif. Il est deja
-    # arrive qu'un conteneur meure sans que rien ne le relance : compose avait
-    # cru le trouver vivant, systemd tenait son unite pour demarree, et le
-    # robot est reste muet cinq minutes. La minuterie de sante repasse ici.
+    # Filet de securite, appele par la minuterie de sante. Il traite deux
+    # pannes distinctes, et l'escalade compte : relancer un runtime dont le
+    # peripherique est bloque ne sert a rien, mais reinitialiser un port USB
+    # a chaque hoquet serait brutal.
     systemctl is-active --quiet oscar-edge.service || exit 0
+    marqueur="/var/lib/oscar/reprise-media"
+
     etat="$(docker inspect -f '{{.State.Status}}' oscar-edge 2>/dev/null || echo absent)"
-    [[ "$etat" == "running" ]] && exit 0
-    echo "Runtime $etat alors que le service est actif : relance." >&2
+    if [[ "$etat" != "running" ]]; then
+      echo "Runtime $etat alors que le service est actif : relance." >&2
+      rm -f "$marqueur"
+      "${compose[@]}" up --detach --force-recreate edge
+      exit 0
+    fi
+
+    sante="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' oscar-edge 2>/dev/null)"
+    # Seul un retour a la sante efface le compteur. Pendant « starting », on
+    # attend sans rien effacer : chaque relance rouvre une periode de grace, et
+    # remettre le compteur a zero a ce moment-la empechait l'escalade de jamais
+    # se declencher. Le runtime se relancait en boucle sans que la cause
+    # materielle ne soit traitee.
+    if [[ "$sante" == "healthy" ]]; then
+      rm -f "$marqueur"
+      exit 0
+    fi
+    [[ "$sante" == "unhealthy" ]] || exit 0
+
+    tentatives=$(( $(cat "$marqueur" 2>/dev/null || echo 0) + 1 ))
+    echo "$tentatives" > "$marqueur"
+
+    if (( tentatives >= 2 )); then
+      # Le runtime a deja ete relance sans succes. Sur ce chassis, la session
+      # USB de la camera ne se retablit pas toute seule apres un redemarrage
+      # de conteneur : le noeud ROS demarre et n'initialise jamais le
+      # peripherique. Seul un cycle du port le debloque, et il doit se faire
+      # depuis l'hote, /sys n'etant pas inscriptible dans le conteneur.
+      vendeurs="$(sed -n 's/^OSCAR_USB_RECOVERY_VENDORS=//p' "$config" | tail -1 | tr -d '"')"
+      for vendeur in $vendeurs; do
+        for chemin in /sys/bus/usb/devices/*; do
+          [[ "$(cat "$chemin/idVendor" 2>/dev/null)" == "$vendeur" ]] || continue
+          echo "Reinitialisation du port USB $(basename "$chemin") (vendeur $vendeur)." >&2
+          echo 0 > "$chemin/authorized" 2>/dev/null || true
+          sleep 2
+          echo 1 > "$chemin/authorized" 2>/dev/null || true
+        done
+      done
+      rm -f "$marqueur"
+    fi
+
+    echo "Runtime en mauvaise sante (tentative $tentatives) : relance." >&2
     "${compose[@]}" up --detach --force-recreate edge
     ;;
   start)

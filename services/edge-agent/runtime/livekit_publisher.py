@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -76,6 +77,8 @@ class LiveKitPublisher:
         self._publication: Optional[rtc.LocalTrackPublication] = None
         self._frames_published = 0
         self._last_stats_t = time.monotonic()
+        # Chemin du temoin de publication, partage avec le controle de sante.
+        self._temoin = Path(os.getenv("OSCAR_MEDIA_HEARTBEAT", "/run/oscar/media.beat"))
         self.disconnected = asyncio.Event()
 
     async def connect(self) -> None:
@@ -198,6 +201,25 @@ class LiveKitPublisher:
             log.info("Published ~%.1f fps over last %.1fs", fps_avg, now - self._last_stats_t)
             self._frames_published = 0
             self._last_stats_t = now
+            self._battre()
+
+    def _battre(self) -> None:
+        """Trace de vie datee, ecrite a chaque fenetre de mesure.
+
+        Le controle de sante du conteneur verifiait que le processus existait.
+        Un agent vivant mais incapable de joindre la salle passait donc pour
+        sain pendant que le cockpit restait noir. Ce fichier prouve autre
+        chose : des images sont reellement parties.
+
+        L'echec d'ecriture ne doit jamais interrompre la publication : mieux
+        vaut un robot qui diffuse sans preuve qu'un robot qui s'arrete parce
+        qu'il n'a pas pu ecrire un fichier temoin.
+        """
+        try:
+            self._temoin.parent.mkdir(parents=True, exist_ok=True)
+            self._temoin.write_text(str(int(time.time())), encoding="utf-8")
+        except OSError:
+            log.debug("temoin de publication non ecrit", exc_info=True)
 
     async def aclose(self) -> None:
         if self.room is None:

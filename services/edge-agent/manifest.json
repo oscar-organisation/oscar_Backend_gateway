@@ -1,6 +1,6 @@
 {
   "name": "oscar-edge",
-  "version": "0.5.2",
+  "version": "0.5.6",
   "contractVersion": 1,
   "supportedArchitectures": [
     "aarch64",
@@ -40,5 +40,9 @@
     "source": "registry",
     "builtOn": "robot-de-reference",
     "reference": "/etc/oscar/release.env"
+  },
+  "sante": {
+    "preuve": "publication effective",
+    "reprise": "relance puis reinitialisation du port USB"
   }
 }

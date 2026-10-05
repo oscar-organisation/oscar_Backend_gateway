@@ -57,6 +57,29 @@ fi
 if [[ ! -f "$config_dir/robot.env" ]]; then
   install -m 0640 "$bundle_dir/config/robot.env.example" "$config_dir/robot.env"
   echo "Configuration initiale creee: $config_dir/robot.env"
+else
+  # Un robot deja en service gardait son profil tel quel, donc une variable
+  # apparue dans une version ulterieure ne l'atteignait jamais. La reprise
+  # automatique du port USB est restee inerte pour cette raison : son code
+  # etait installe, la variable qui la declenche absente.
+  #
+  # On ajoute ce qui manque, avec la valeur par defaut du modele, et on ne
+  # touche a rien de ce qui existe : ce fichier porte les reglages propres au
+  # chassis, et l'ecraser effacerait le travail de mise en service.
+  ajoutees=0
+  while IFS= read -r ligne; do
+    [[ "$ligne" =~ ^[A-Z_]+= ]] || continue
+    cle="${ligne%%=*}"
+    grep -qE "^[[:space:]]*#?[[:space:]]*${cle}=" "$config_dir/robot.env" && continue
+    if (( ajoutees == 0 )); then
+      printf '\n# Ajoute par la mise a jour du paquet %s.\n' "$version" >> "$config_dir/robot.env"
+    fi
+    printf '%s\n' "$ligne" >> "$config_dir/robot.env"
+    ajoutees=$((ajoutees + 1))
+  done < "$bundle_dir/config/robot.env.example"
+  if (( ajoutees > 0 )); then
+    echo "$ajoutees variable(s) ajoutee(s) a $config_dir/robot.env"
+  fi
 fi
 
 # Configuration issue du bundle : vide tant que rien n'a ete publie, mais

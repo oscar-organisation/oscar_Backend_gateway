@@ -19,7 +19,11 @@ COPY docker/healthcheck-container.sh /usr/local/bin/oscar-edge-healthcheck
 RUN chmod 0755 /usr/local/bin/oscar-edge-entrypoint /usr/local/bin/oscar-edge-healthcheck
 
 # La sante suit ce que le bundle a active, agents comme mise en route.
-HEALTHCHECK --interval=15s --timeout=10s --start-period=90s --retries=3 \
+# La periode de grace couvre la mise en route du chassis (dix-huit secondes
+# de delais volontaires, plus le demarrage des noeuds ROS), la connexion a
+# la salle et les premieres images. La juger trop tot creerait une boucle
+# de redemarrage pire que la panne qu'on cherche a rattraper.
+HEALTHCHECK --interval=15s --timeout=10s --start-period=150s --retries=3 \
   CMD /usr/local/bin/oscar-edge-healthcheck
 
 ENTRYPOINT ["/usr/local/bin/oscar-edge-entrypoint"]
