@@ -50,7 +50,7 @@ case "${1:-}" in
     # La reconciliation n'est activee que si le robot sait a qui parler : sans
     # OSCAR_API_URL, la minuterie echouerait a chaque passage pour rien.
     if grep -qs '^OSCAR_API_URL=.\+' "$config"; then
-      systemctl enable --now oscar-edge-sync.timer oscar-edge-release.timer
+      systemctl enable --now oscar-edge-sync.timer oscar-edge-release.timer oscar-edge-credentials.timer
     else
       echo "OSCAR_API_URL absent de $config : reconciliation des bundles non activee."
     fi

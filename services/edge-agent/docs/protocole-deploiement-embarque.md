@@ -134,6 +134,7 @@ Prerequis dans `/etc/oscar/robot.env` et `/etc/oscar/credentials` :
 OSCAR_API_URL=https://api-admin.oscar-bot.com/api      # dans robot.env
 sudo install -m 600 /dev/stdin /etc/oscar/credentials/agent.key <<< "CLE_AGENT"
 sudo systemctl enable --now oscar-edge-sync.timer
+sudo systemctl enable --now oscar-edge-credentials.timer
 ```
 
 La cle d'agent vit hors de `robot.env` parce que ce fichier est injecte dans le
@@ -182,6 +183,19 @@ dans la plateforme.
 
 Le timer de sante produit une verification chaque minute. Une supervision
 centrale pourra ensuite collecter ce meme contrat de sante.
+
+Le timer `oscar-edge-credentials.timer` controle les identifiants LiveKit une
+fois par jour, vers 03:00 avec un delai aleatoire pouvant atteindre une heure.
+Il les renouvelle lorsqu'ils expirent dans moins de sept jours, lorsqu'ils
+manquent ou lorsqu'ils sont illisibles. Une indisponibilite de la console ne
+supprime ni ne remplace les fichiers en place et le passage se termine sans
+alerte.
+
+Les agents media et commande lisent leur fichier uniquement avant leur appel a
+`Room.connect()`. Ils donnent ensuite a LiveKit la valeur du jeton, et non le
+chemin du fichier. Un changement valide impose donc un redemarrage du runtime.
+L'outil compare le contenu avant d'ecrire, pose les secrets atomiquement en
+mode `0600`, puis ne redemarre qu'une fois si au moins une valeur a change.
 
 ## 9. Mise a jour et retour arriere
 

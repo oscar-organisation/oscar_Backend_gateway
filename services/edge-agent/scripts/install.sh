@@ -85,6 +85,7 @@ if [[ "$switch" == true ]]; then
   install -m 0755 "$bundle_dir/scripts/network-recovery.sh" /usr/local/libexec/oscar-network-recovery
   install -m 0755 "$bundle_dir/tools/bundle_sync.py" /usr/local/libexec/oscar-bundle-sync
   install -m 0755 "$bundle_dir/tools/release_sync.py" /usr/local/libexec/oscar-release-sync
+  install -m 0755 "$bundle_dir/tools/credentials_sync.py" /usr/local/libexec/oscar-credentials-sync
   install -m 0644 "$bundle_dir/systemd/oscar-edge.service" /etc/systemd/system/oscar-edge.service
   install -m 0644 "$bundle_dir/systemd/oscar-edge-bridge.service" /etc/systemd/system/oscar-edge-bridge.service
   install -m 0644 "$bundle_dir/systemd/oscar-edge-health.service" /etc/systemd/system/oscar-edge-health.service
@@ -95,7 +96,15 @@ if [[ "$switch" == true ]]; then
   install -m 0644 "$bundle_dir/systemd/oscar-edge-sync.timer" /etc/systemd/system/oscar-edge-sync.timer
   install -m 0644 "$bundle_dir/systemd/oscar-edge-release.service" /etc/systemd/system/oscar-edge-release.service
   install -m 0644 "$bundle_dir/systemd/oscar-edge-release.timer" /etc/systemd/system/oscar-edge-release.timer
+  install -m 0644 "$bundle_dir/systemd/oscar-edge-credentials.service" /etc/systemd/system/oscar-edge-credentials.service
+  install -m 0644 "$bundle_dir/systemd/oscar-edge-credentials.timer" /etc/systemd/system/oscar-edge-credentials.timer
   systemctl daemon-reload
+  # Une mise a jour automatisee ne repasse pas par `oscarctl activate`. Sur un
+  # robot deja enrole, le nouveau timer doit donc entrer en service des que la
+  # release qui le contient est installee.
+  if grep -qs '^OSCAR_API_URL=.\+' "$config_dir/robot.env"; then
+    systemctl enable --now oscar-edge-credentials.timer
+  fi
 fi
 
 if [[ "$switch" != true ]]; then

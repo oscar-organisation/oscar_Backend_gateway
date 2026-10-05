@@ -108,6 +108,25 @@ robot est cable (topics ROS, limites, resolution) et ne bouge qu'a la main ;
 version). Une capacite reclamee par un bundle mais absente de ce runtime est
 refusee et remontee avec son motif, plutot qu'appliquee a moitie.
 
+## Renouvellement des identifiants LiveKit
+
+`oscar-edge-credentials.timer` verifie les deux identifiants chaque nuit vers
+03:00, avec un delai aleatoire d'une heure pour repartir la charge d'une
+flotte. Il interroge la console lorsqu'un fichier manque, est illisible ou
+expire dans moins de sept jours. Une console indisponible laisse les fichiers
+en place et le prochain passage reessaie.
+
+Les agents transmettent la chaine du jeton a LiveKit lors de leur connexion ;
+ils ne relisent pas le fichier ensuite. Quand un jeton change, le runtime est
+donc redemarre une fois, apres l'ecriture atomique des fichiers en mode `0600`.
+Une reponse identique ne reecrit rien et ne coupe pas la video.
+
+```bash
+sudo systemctl status oscar-edge-credentials.timer
+sudo systemctl start oscar-edge-credentials.service
+sudo journalctl -u oscar-edge-credentials.service -n 50
+```
+
 ```bash
 oscarctl sync --no-restart   # verification a blanc, sans couper la video
 oscarctl sync                # reconciliation immediate
