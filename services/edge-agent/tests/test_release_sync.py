@@ -9,6 +9,7 @@ import io
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -272,6 +273,44 @@ class ReferenceImageTest(unittest.TestCase):
     def test_sans_registre_configure_aucune_reference_n_est_produite(self) -> None:
         self.config.write_text("OSCAR_ROBOT_ID=oscar-02\n", encoding="utf-8")
         self.assertEqual(MODULE.reference_image(self.racine, "2.0.0", self.config), "")
+
+
+class EmpreinteTest(ReferenceImageTest):
+    """Depuis 0.6.0 : l'image est designee par empreinte et signee."""
+
+    EMPREINTE = "sha256:" + "a" * 64
+
+    def _release_060(self, avec_cle):
+        dossier = self.racine / "releases" / "2.0.0"
+        (dossier / "IMAGE").write_text("oscar/edge-humble\n", encoding="utf-8")
+        (dossier / "IMAGE_DIGEST").write_text(self.EMPREINTE + "\n", encoding="utf-8")
+        if avec_cle:
+            (dossier / "config").mkdir()
+            (dossier / "config" / "cosign.pub").write_text("cle", encoding="utf-8")
+        return dossier
+
+    def test_une_empreinte_remplace_l_etiquette_et_la_famille(self) -> None:
+        self._release_060(avec_cle=False)
+        self.assertEqual(
+            MODULE.reference_image(self.racine, "2.0.0", self.config),
+            "registre.test:5000/oscar/edge-humble@" + self.EMPREINTE)
+
+    def test_une_release_sans_cle_ne_demande_pas_de_signature(self) -> None:
+        self._release_060(avec_cle=False)
+        with mock.patch.object(MODULE, "executer") as executer:
+            code, _ = MODULE.verifier_signature(self.racine, "2.0.0", "image@x")
+        self.assertEqual(code, 0)
+        executer.assert_not_called()
+
+    def test_une_release_avec_cle_exige_la_verification(self) -> None:
+        dossier = self._release_060(avec_cle=True)
+        with mock.patch.object(MODULE, "executer", return_value=(1, "no signatures found")) as executer:
+            code, sortie = MODULE.verifier_signature(self.racine, "2.0.0", "image@x")
+        self.assertEqual(code, 1)
+        self.assertIn("no signatures found", sortie)
+        commande = executer.call_args[0][0]
+        self.assertEqual(commande[0], str(dossier / "scripts" / "verify-image.sh"))
+        self.assertEqual(commande[1:], ["image@x", str(dossier / "config" / "cosign.pub")])
 
 
 class TirageTest(CycleFixture):

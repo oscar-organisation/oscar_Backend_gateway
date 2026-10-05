@@ -1,7 +1,8 @@
 [Unit]
 Description=OSCAR Edge Runtime
 Wants=network-online.target docker.service
-After=network-online.target docker.service oscar-edge-bridge.service
+Wants=oscar-chassis.service
+After=network-online.target docker.service oscar-edge-bridge.service oscar-chassis.service
 
 [Service]
 # --force-recreate ci-dessous n'est pas une precaution de style. Sans lui,
@@ -13,10 +14,15 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/oscar/current
 ExecStartPre=/usr/local/bin/oscarctl preflight
-ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml up --detach --force-recreate edge
+# Le chassis n'est recree que si sa configuration a change, c'est-a-dire si
+# le bundle demande une autre mise en route ; sinon cette ligne ne fait rien.
+ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml up --detach chassis
+ExecStart=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml up --detach --force-recreate --no-deps edge
 ExecStop=/usr/bin/docker compose --env-file /etc/oscar/robot.env --env-file /etc/oscar/release.env -f /opt/oscar/current/compose.yaml stop --timeout 25 edge
 TimeoutStartSec=300
-TimeoutStopSec=20
+# Superieur au delai donne a compose : sinon systemd tue l'arret en route et
+# l'ancien conteneur survit a la relance.
+TimeoutStopSec=40
 
 [Install]
 WantedBy=multi-user.target

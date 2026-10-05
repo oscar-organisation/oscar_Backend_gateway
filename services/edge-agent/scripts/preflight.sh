@@ -40,6 +40,18 @@ else
   fail "reference d'image absente: $release_env (reinstaller le paquet)"
 fi
 
+# Les pilotes tournent dans l'image du constructeur, que rien ne retelecharge :
+# elle doit etre sur le disque, livree avec le robot.
+if grep -q '^  chassis:' "$root/compose.yaml" 2>/dev/null; then
+  if [[ -z "${ROBOT_BASE_IMAGE:-}" ]]; then
+    fail "ROBOT_BASE_IMAGE absent de robot.env (image constructeur du chassis)"
+  elif docker image inspect "$ROBOT_BASE_IMAGE" >/dev/null 2>&1; then
+    ok "image constructeur presente: $ROBOT_BASE_IMAGE"
+  else
+    fail "image constructeur absente du robot: $ROBOT_BASE_IMAGE"
+  fi
+fi
+
 # Reconciliation des bundles : optionnelle, mais si elle est configuree a
 # moitie, autant le dire maintenant plutot qu'au premier deploiement refuse.
 if [[ -n "${OSCAR_API_URL:-}" ]]; then

@@ -5,7 +5,6 @@ home="${OSCAR_HOME:-/opt/oscar/current}"
 config="${OSCAR_CONFIG_FILE:-/etc/oscar/robot.env}"
 release="${OSCAR_RELEASE_FILE:-/etc/oscar/release.env}"
 compose=(docker compose --env-file "$config" --env-file "$release" -f "$home/compose.yaml")
-compose_build=(docker compose --env-file "$config" --env-file "$release" -f "$home/compose.build.yaml")
 
 usage() {
   cat <<'EOF'
@@ -28,9 +27,6 @@ Usage: oscarctl COMMAND
   rollback   Revenir a une release deja installee
   version    Afficher la version installee
   image      Afficher l'image attendue et son empreinte locale
-
-Robot de reference uniquement :
-  build-image [--local]  Construire l'image de cette release et la pousser
 EOF
 }
 
@@ -46,7 +42,7 @@ case "${1:-}" in
     # attendue est bien sur le disque, ce qu'elle n'est pas avant.
     "$0" pull
     /usr/local/libexec/oscar-preflight
-    systemctl enable --now oscar-edge-bridge.service oscar-edge.service oscar-edge-health.timer oscar-edge-network.timer
+    systemctl enable --now oscar-edge-bridge.service oscar-chassis.service oscar-edge.service oscar-edge-health.timer oscar-edge-network.timer
     # La reconciliation n'est activee que si le robot sait a qui parler : sans
     # OSCAR_API_URL, la minuterie echouerait a chaque passage pour rien.
     if grep -qs '^OSCAR_API_URL=.\+' "$config"; then
@@ -70,6 +66,12 @@ case "${1:-}" in
       echo "Tirage de $image"
       docker pull "$image"
     fi
+    # Meme exigence qu'a la montee automatique : une release qui livre une
+    # cle publique ne demarre qu'une image signee.
+    if [[ -f "$home/config/cosign.pub" ]]; then
+      "$home/scripts/verify-image.sh" "$image" "$home/config/cosign.pub"
+      echo "Signature verifiee: $image"
+    fi
     ;;
   image)
     image="$(grep -s '^OSCAR_EDGE_IMAGE=' "$release" | tail -1 | cut -d= -f2-)"
@@ -82,23 +84,6 @@ case "${1:-}" in
       printf 'locale   : absente\n'
     fi
     ;;
-  build-image)
-    # Reserve au robot de reference : celui qui porte l'image constructeur et
-    # les identifiants d'ecriture du registre. Les autres tirent le resultat.
-    image="$(grep -s '^OSCAR_EDGE_IMAGE=' "$release" | tail -1 | cut -d= -f2-)"
-    if [[ -z "$image" ]]; then
-      echo "OSCAR_EDGE_IMAGE absent de $release : paquet installe ?" >&2
-      exit 1
-    fi
-    "${compose_build[@]}" build edge
-    if [[ "${2:-}" == "--local" ]]; then
-      echo "Image construite sans etre poussee: $image"
-      exit 0
-    fi
-    docker push "$image"
-    printf 'Image poussee: %s\n' \
-      "$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")"
-    ;;
   ensure)
     # Filet de securite, appele par la minuterie de sante. Il traite deux
     # pannes distinctes, et l'escalade compte : relancer un runtime dont le
@@ -107,25 +92,40 @@ case "${1:-}" in
     systemctl is-active --quiet oscar-edge.service || exit 0
     marqueur="/var/lib/oscar/reprise-media"
 
-    etat="$(docker inspect -f '{{.State.Status}}' oscar-edge 2>/dev/null || echo absent)"
-    if [[ "$etat" != "running" ]]; then
-      echo "Runtime $etat alors que le service est actif : relance." >&2
-      rm -f "$marqueur"
-      "${compose[@]}" up --detach --force-recreate edge
-      exit 0
-    fi
+    # Deux conteneurs a surveiller : un conteneur arrete est relance seul.
+    # Le chassis n'est surveille que si son service est actif : pendant un
+    # demarrage, cette minuterie creait sinon le conteneur en meme temps que
+    # systemd, et l'un des deux echouait sur un conflit de nom.
+    surveilles=(edge)
+    systemctl is-active --quiet oscar-chassis.service && surveilles=(chassis edge)
+    for service in "${surveilles[@]}"; do
+      etat="$(docker inspect -f '{{.State.Status}}' "oscar-$service" 2>/dev/null || echo absent)"
+      if [[ "$etat" != "running" ]]; then
+        echo "Conteneur $service $etat alors que le service est actif : relance." >&2
+        rm -f "$marqueur"
+        "${compose[@]}" up --detach --force-recreate --no-deps "$service"
+        exit 0
+      fi
+    done
 
-    sante="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' oscar-edge 2>/dev/null)"
-    # Seul un retour a la sante efface le compteur. Pendant « starting », on
-    # attend sans rien effacer : chaque relance rouvre une periode de grace, et
-    # remettre le compteur a zero a ce moment-la empechait l'escalade de jamais
-    # se declencher. Le runtime se relancait en boucle sans que la cause
-    # materielle ne soit traitee.
-    if [[ "$sante" == "healthy" ]]; then
+    sante() { docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "oscar-$1" 2>/dev/null; }
+    # Seul un retour a la sante des deux efface le compteur. Pendant
+    # « starting », on attend sans rien effacer : chaque relance rouvre une
+    # periode de grace, et remettre le compteur a zero a ce moment-la
+    # empechait l'escalade de jamais se declencher.
+    malades=()
+    for service in "${surveilles[@]}"; do
+      [[ "$(sante "$service")" == "unhealthy" ]] && malades+=("$service")
+    done
+    sains=1
+    for service in "${surveilles[@]}"; do
+      [[ "$(sante "$service")" == "healthy" ]] || sains=0
+    done
+    if (( sains )); then
       rm -f "$marqueur"
       exit 0
     fi
-    [[ "$sante" == "unhealthy" ]] || exit 0
+    (( ${#malades[@]} )) || exit 0
 
     tentatives=$(( $(cat "$marqueur" 2>/dev/null || echo 0) + 1 ))
     echo "$tentatives" > "$marqueur"
@@ -147,22 +147,26 @@ case "${1:-}" in
         done
       done
       rm -f "$marqueur"
+      # La camera appartient au conteneur chassis : il repart avec le port.
+      malades=(chassis edge)
     fi
 
-    echo "Runtime en mauvaise sante (tentative $tentatives) : relance." >&2
-    "${compose[@]}" up --detach --force-recreate edge
+    echo "En mauvaise sante (tentative $tentatives) : ${malades[*]}, relance." >&2
+    for service in "${malades[@]}"; do
+      "${compose[@]}" up --detach --force-recreate --no-deps "$service"
+    done
     ;;
   start)
-    systemctl start oscar-edge.service
+    systemctl start oscar-chassis.service oscar-edge.service
     ;;
   stop)
-    systemctl stop oscar-edge.service
+    systemctl stop oscar-edge.service oscar-chassis.service
     ;;
   restart)
     systemctl restart oscar-edge.service
     ;;
   status)
-    systemctl --no-pager --full status oscar-edge.service || true
+    systemctl --no-pager --full status oscar-chassis.service oscar-edge.service || true
     "${compose[@]}" ps || true
     ;;
   doctor)
@@ -170,7 +174,7 @@ case "${1:-}" in
     exec /usr/local/bin/oscar-healthcheck
     ;;
   logs)
-    exec "${compose[@]}" logs --follow --tail 200 edge
+    exec "${compose[@]}" logs --follow --tail 200 chassis edge
     ;;
   sync)
     shift
@@ -204,10 +208,26 @@ case "${1:-}" in
       exit 2
     fi
     previous="$(readlink -f /opt/oscar/current)"
+    cible="/opt/oscar/releases/$target"
     systemctl stop oscar-edge.service
-    ln -sfn "/opt/oscar/releases/$target" /opt/oscar/current
+    # Une release d'avant 0.6.0 lance elle-meme les pilotes : le conteneur
+    # chassis doit disparaitre, sinon deux piles pilotent les memes moteurs.
+    # Ses unites systemd reprennent aussi la place des actuelles.
+    if ! grep -q '^  chassis:' "$cible/compose.yaml"; then
+      systemctl disable --now oscar-chassis.service 2>/dev/null || true
+      docker rm -f oscar-chassis >/dev/null 2>&1 || true
+    fi
+    install -m 0644 "$cible/systemd/oscar-edge.service" /etc/systemd/system/oscar-edge.service
+    systemctl daemon-reload
+    ln -sfn "$cible" /opt/oscar/current
+    # La reference d'image suit la release : sans cette ligne, le retour
+    # arriere relancait l'image de la version qu'on quittait.
+    /usr/local/libexec/oscar-release-env "$cible"
     if ! /usr/local/libexec/oscar-preflight || ! systemctl start oscar-edge.service; then
+      install -m 0644 "$previous/systemd/oscar-edge.service" /etc/systemd/system/oscar-edge.service
+      systemctl daemon-reload
       ln -sfn "$previous" /opt/oscar/current
+      /usr/local/libexec/oscar-release-env "$previous"
       systemctl start oscar-edge.service
       echo "Retour arriere refuse; release precedente restauree." >&2
       exit 1

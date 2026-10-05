@@ -109,6 +109,7 @@ if [[ "$switch" == true ]]; then
   install -m 0755 "$bundle_dir/tools/bundle_sync.py" /usr/local/libexec/oscar-bundle-sync
   install -m 0755 "$bundle_dir/tools/release_sync.py" /usr/local/libexec/oscar-release-sync
   install -m 0755 "$bundle_dir/tools/credentials_sync.py" /usr/local/libexec/oscar-credentials-sync
+  install -m 0644 "$bundle_dir/systemd/oscar-chassis.service" /etc/systemd/system/oscar-chassis.service
   install -m 0644 "$bundle_dir/systemd/oscar-edge.service" /etc/systemd/system/oscar-edge.service
   install -m 0644 "$bundle_dir/systemd/oscar-edge-bridge.service" /etc/systemd/system/oscar-edge-bridge.service
   install -m 0644 "$bundle_dir/systemd/oscar-edge-health.service" /etc/systemd/system/oscar-edge-health.service
@@ -122,6 +123,10 @@ if [[ "$switch" == true ]]; then
   install -m 0644 "$bundle_dir/systemd/oscar-edge-credentials.service" /etc/systemd/system/oscar-edge-credentials.service
   install -m 0644 "$bundle_dir/systemd/oscar-edge-credentials.timer" /etc/systemd/system/oscar-edge-credentials.timer
   systemctl daemon-reload
+  # Les pilotes vivent dans leur propre unite depuis 0.6.0. Elle est activee
+  # ici et non dans `oscarctl activate`, qu'une mise a jour ne rejoue pas ;
+  # oscar-edge.service la demarre lui-meme a sa prochaine relance.
+  systemctl enable oscar-chassis.service
   # Une mise a jour automatisee ne repasse pas par `oscarctl activate`. Sur un
   # robot deja enrole, le nouveau timer doit donc entrer en service des que la
   # release qui le contient est installee.

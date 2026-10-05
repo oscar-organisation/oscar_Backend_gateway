@@ -15,7 +15,7 @@ jobs:
           python-version: "3.11"
       - run: python -m unittest discover -s services/edge-agent/tests -v
       - run: python -m compileall -q services/edge-agent/runtime services/edge-agent/tools
-      - run: ./services/edge-agent/scripts/build-release.sh
+      - run: OSCAR_RELEASE_SANS_EMPREINTE=1 ./services/edge-agent/scripts/build-release.sh
 
   livekit-config:
     runs-on: ubuntu-latest

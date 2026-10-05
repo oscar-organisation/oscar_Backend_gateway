@@ -1,6 +1,6 @@
 {
   "name": "oscar-edge",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "contractVersion": 1,
   "supportedArchitectures": [
     "aarch64",
@@ -21,7 +21,8 @@
   "safety": {
     "deadmanRequired": true,
     "watchdogMs": 300,
-    "motionOnBoot": false
+    "motionOnBoot": false,
+    "chassisStopMs": 300
   },
   "bundleSync": {
     "format": "oscar.bundle.runtime.v1",
@@ -29,20 +30,26 @@
   },
   "bringup": {
     "source": "composition+profile",
-    "variables": "OSCAR_BRINGUP_<BESOIN>"
+    "variables": "OSCAR_BRINGUP_<BESOIN>",
+    "runsIn": "oscar-chassis"
   },
   "releaseSync": {
     "intervalMinutes": 10,
     "verification": "sha256 + HMAC par cle robot"
   },
   "image": {
-    "repository": "oscar/edge-<profil>",
-    "source": "registry",
-    "builtOn": "robot-de-reference",
-    "reference": "/etc/oscar/release.env"
+    "repository": "oscar/edge-<distribution ROS>",
+    "reference": "empreinte sha256, /etc/oscar/release.env",
+    "builtOn": "CI GitHub, linux/arm64",
+    "signature": "cosign, cle publique config/cosign.pub"
   },
   "sante": {
     "preuve": "publication effective",
     "reprise": "relance puis reinitialisation du port USB"
+  },
+  "chassis": {
+    "image": "ROBOT_BASE_IMAGE, livree avec le robot, jamais tiree",
+    "conteneur": "oscar-chassis",
+    "contenu": "pilotes du constructeur + arret de securite"
   }
 }
